@@ -170,9 +170,12 @@ I_final = I_avg + RFN_residual(I_sag, I_cor)
 
 - Paper: SAINT, CVPR 2020
 - Code: <https://github.com/cpeng93/SAINT>
+- Reference commit: `a4a1b8f9c7b74a5c5d00b8b08132ff15a1e65802`
 - Documented environment: Python 3.7, PyTorch 1.0
 
 Upstream은 구조, tensor flow와 학습 동작을 확인하기 위한 reference로 사용합니다. 이 저장소에는 현대 PyTorch 기반 독립 구현을 작성하고, 차이가 있는 부분은 PR에서 명시합니다. Upstream source를 그대로 복사하지 않습니다.
+
+논문 식 (5)는 sub-pixel channel 0을 LR 입력으로 정의하지만 공개 구현은 channel 0을 포함한 모든 channel을 dynamic filter로 예측합니다. 이 저장소의 AMI는 공개 구현의 학습 동작을 따르고, 구조·물성 평가용 full volume을 만들 때 observed slice를 입력값으로 다시 삽입하여 data consistency를 보장합니다. 공개 구현의 `512` 고정 반복은 제거하고 실제 입력 shape를 사용합니다.
 
 구현 전 확인 항목:
 
