@@ -2,7 +2,7 @@
 
 이 문서는 데이터, 모델, loss, 평가 모듈을 서로 독립적으로 개발하기 위한 코드 계약이다. 구현자는 내부 알고리즘을 자유롭게 작성할 수 있지만, 이 문서의 axis, shape, dtype, 값 범위와 함수 입출력은 임의로 변경하지 않는다.
 
-계약을 바꿔야 하면 관련 구현과 테스트를 작성하기 전에 팀에 공유하고, 연구 프로토콜 및 필요한 decision record와 함께 같은 PR에서 갱신한다.
+계약을 바꿔야 하면 관련 구현과 테스트를 작성하기 전에 팀에 공유하고, [Research Protocol](research_protocol.md)과 같은 PR에서 갱신한다.
 
 ## 1. 담당 영역
 
@@ -171,7 +171,7 @@ topology_loss(probability, target, *, iterations,
               dice_weight=0.5, cldice_weight=0.5) -> torch.Tensor
 ```
 
-E1/E2 학습 loss의 mask 범위는 upstream stage별 동작을 audit한 뒤 config와 decision record에 동결한다. 평가가 bracketed missing-only라는 이유만으로 학습 loss까지 missing-only로 가정하지 않는다. E3 topology는 observed slice를 입력값으로 교체한 assembled 3D soft pore volume에 적용하며, observed slice를 통해 gradient가 흐르면 안 된다.
+E1/E2 학습 loss의 mask 범위는 upstream stage별 동작을 audit한 뒤 config와 Research Protocol에 동결한다. 평가가 bracketed missing-only라는 이유만으로 학습 loss까지 missing-only로 가정하지 않는다. E3 topology는 observed slice를 입력값으로 교체한 assembled 3D soft pore volume에 적용하며, observed slice를 통해 gradient가 흐르면 안 된다.
 
 ### 4.4 Evaluation
 

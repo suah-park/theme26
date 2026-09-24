@@ -73,7 +73,6 @@ reports/generated/
 tmp/
 work/
 
-# Keep user-facing research documents but ignore generated bulk output
+# Ignore generated bulk output
 outputs/*
-!outputs/digital_rock_sparse_slice_reconstruction_final_protocol.md
 

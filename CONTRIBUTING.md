@@ -1,162 +1,98 @@
 # Contributing
 
-이 프로젝트의 우선순위는 빠른 모델 변경보다 재현 가능한 grayscale SAINT baseline입니다. 모든 변경은 [연구 프로토콜](digital_rock_sparse_slice_reconstruction_final_protocol.md)의 고정 실험 조건과 acceptance gate를 따라야 합니다.
+이 프로젝트는 모듈별 담당자가 독립적으로 구현하고, 작은 CPU test를 통과한 변경만 `main`에 병합합니다.
 
-## 기본 원칙
+## 작업 영역
 
-- Primary data는 11 Sandstones filtered grayscale입니다.
-- Split은 parent-core 단위이며 patch 생성보다 먼저 적용합니다.
-- Primary experiment는 x4 SAINT + L1입니다.
-- 모든 primary spatial crop은 `256 x 256 x 256`입니다.
-- Gradient loss는 E1 baseline 완료 후 E2 ablation으로 추가합니다.
-- Gradient weight는 normalized `[0,1]` intensity에서 `0.1`로 고정합니다.
-- Binary segmentation은 grayscale reconstruction target이 아닙니다. E3의 auxiliary topology target과 공통 evaluation reference로만 사용합니다.
-- E3는 E2 best checkpoint에서 시작하는 3D soft Dice + soft-clDice RFN fine-tuning입니다.
-- Permeability와 hard connected-component metric은 loss가 아니라 최종 평가에만 사용합니다.
-- Test 결과로 checkpoint, loss weight, normalization, segmentation threshold 또는 hyperparameter를 선택하지 않습니다.
-- 원본 volume, patch, checkpoint, prediction 및 solver output은 Git에 commit하지 않습니다.
+| 영역 | 경로 | 주요 책임 |
+|---|---|---|
+| Model and integration | `src/theme26/models/saint/`, `scripts/`, `configs/`, `slurm/` | SAINT, 학습·추론, GPU 실행, 통합 |
+| Data | `src/theme26/data/` | Raw I/O, normalization, crop, sparse sampling, E0 |
+| Loss | `src/theme26/losses/` | L1, gradient, soft Dice, 3D soft-clDice |
+| Evaluation | `src/theme26/evaluation/` | Image, topology, physics metrics |
 
-## 작업 절차
+공통 데이터 규칙과 공개 함수는 [Interface Contract](docs/interface_contract.md)를 따릅니다.
 
-1. Issue에 goal, input, expected output, acceptance criteria와 dependency를 작성합니다.
-2. 최신 `main`에서 변경 주제에 맞는 feature branch를 생성합니다.
-3. 관련 protocol section과 기존 decision record를 확인합니다.
-4. 작은 단위로 구현하고 unit/smoke test를 추가합니다.
-5. PR에 재현 명령, 검증 결과, 실험 영향 및 artifact 위치를 기록합니다.
-6. 코드와 실험 조건 검토 및 Protocol acceptance gate 확인 후 PR을 `main`에 병합합니다.
+## Branch와 PR
 
-현재 팀 규모에서는 별도 `develop` branch를 두지 않습니다. `main` 직접 push 대신 짧은 feature branch와 PR을 사용합니다.
+1. 최신 `main`에서 짧은 feature branch를 만듭니다.
+2. 자신의 담당 모듈과 관련 test를 함께 수정합니다.
+3. 로컬 CPU test와 smoke test를 실행합니다.
+4. PR에 입력·출력, 실행 명령과 검증 결과를 기록합니다.
+5. Review 후 `main`에 병합합니다.
 
-## Branch 이름
+`main`에는 직접 push하지 않고 별도 `develop` branch는 사용하지 않습니다.
+
+Branch 이름 예시:
 
 ```text
-infra/<topic>
-model/<topic>
-eval/<topic>
-docs/<topic>
+data/raw-loader
+data/sparse-sampling
+model/ami
+model/rfn
+loss/gradient
+loss/topology
+eval/image-metrics
+eval/topology-metrics
+infra/slurm
+docs/onboarding
 ```
 
-예시:
+Commit 예시:
 
 ```text
-infra/eleven-sandstones-audit
-infra/core-split-manifest
-model/upstream-saint-reproduction
-model/grayscale-l1
-model/gradient-loss
-model/3d-soft-cldice
-eval/missing-slice-metrics
-eval/frozen-segmentation
-docs/gradient-ablation-decision
+feat(data): add aligned grayscale and binary crops
+feat(model): implement grayscale AMI
+feat(loss): add 3d soft-cldice
+feat(eval): add missing-slice metrics
+fix(data): preserve xyz axis order
+docs(protocol): clarify segmentation settings
 ```
 
-## Commit 예시
+## 공통 규칙
 
-```text
-feat(data): add x4 z-sampling with physical spacing
-feat(model): port grayscale SAINT L1 baseline
-feat(loss): add finite-difference gradient loss
-feat(loss): add 3d soft-cldice fine-tuning
-feat(eval): add missing-slice PSNR and SSIM
-fix(data): prevent parent-core split leakage
-docs(protocol): record segmentation freeze decision
-```
+- Canonical NumPy volume은 `[X,Y,Z]`입니다.
+- PyTorch volume은 `[B,C,X,Y,Z]`입니다.
+- Grayscale은 `float32 [0,1]`입니다.
+- 내부 binary는 `pore=1`, `solid=0`입니다.
+- Primary crop은 `256 x 256 x 256`입니다.
+- Primary sampling은 Z축 x4입니다.
+- 원본 volume, checkpoint, prediction과 solver bulk output은 commit하지 않습니다.
+- 개인 PC와 서버의 절대 경로를 source code에 넣지 않습니다.
+- Test 결과를 보고 threshold, loss weight나 checkpoint rule을 변경하지 않습니다.
 
-## Pull request 체크리스트
+## PR 체크리스트
 
-- [ ] 관련 issue와 experiment ID가 연결되어 있다.
-- [ ] 입력·출력 tensor의 axis, shape, dtype 및 intensity range를 설명했다.
-- [ ] Dataset variant와 split manifest version을 기록했다.
-- [ ] Voxel spacing 및 sampling factor/offset을 기록했다.
-- [ ] Test core 또는 test metric을 설정 선택에 사용하지 않았다.
-- [ ] 최소 실행, unit test 또는 parity test를 수행했다.
-- [ ] Upstream SAINT 동작에서 벗어난 부분을 명시했다.
-- [ ] 대용량 파일, local path 또는 credential이 포함되지 않았다.
-- [ ] 재현에 필요한 config, seed 및 commit을 기록했다.
-- [ ] E3이면 soft threshold, temperature, pore polarity와 topology protocol version을 기록했다.
-- [ ] E3 topology gradient가 observed slice가 아닌 missing prediction으로 흐르는지 확인했다.
-- [ ] 결과 PR이면 raw metric과 prediction metadata 위치를 기록했다.
-
-## 변경 시 decision record가 필요한 항목
-
-다음 항목을 변경하려면 `docs/decisions/`에 짧은 기록을 추가합니다.
-
-- Parent-core split 또는 test core
-- Dataset variant(raw/filtered/binary)
-- Axis convention
-- Normalization
-- Primary scale 또는 sparse sampling rule
-- Primary loss 또는 checkpoint metric
-- Gradient definition 또는 weight search space
-- Soft threshold, temperature, topology definition 또는 weight
-- Segmentation operator
-- Test ROI/block
-- Permeability solver 또는 boundary condition
-- Topology-loss 범위 변경
-
-Decision record에는 context, decision, alternatives, consequences를 포함합니다.
-
-## 실험 기록 필수 항목
-
-```text
-experiment_id
-model_id
-git_commit
-upstream_saint_commit
-config_name
-dataset_doi
-dataset_variant
-source_core_id
-split_manifest_version
-split_manifest_hash
-normalization_id
-sampling_axis
-sampling_factor
-sampling_offset
-hr_voxel_spacing_um
-lr_voxel_spacing_um
-roi_id
-seed
-loss_name
-loss_weights
-checkpoint_epoch
-validation_missing_mae
-prediction_dtype
-prediction_shape
-segmentation_protocol_version
-topology_protocol_version
-soft_threshold
-soft_temperature
-soft_skeleton_iterations
-```
-
-## 외부 코드와 데이터
-
-- 11 Sandstones는 ODC-By 1.0 attribution을 유지합니다.
-- SAINT upstream repository의 commit hash를 모든 재현 실험에 기록합니다.
-- SAINT upstream에는 명시적인 license file이 확인되지 않았으므로 코드를 이 repository에 그대로 복사하거나 수정본을 재배포하지 않습니다.
-- 외부 코드가 필요하면 dependency, submodule, patch 또는 재구현 중 어떤 방식인지 PR에 명확히 적습니다.
-- 라이선스가 불명확하면 조건 확인 전에 공개 merge하지 않습니다.
+- [ ] 담당한 공개 함수의 signature를 유지했다.
+- [ ] 입력·출력 axis, shape, dtype과 값 범위를 설명했다.
+- [ ] 정상 입력 test가 있다.
+- [ ] 잘못된 shape/dtype/range test가 있다.
+- [ ] 작은 synthetic volume의 CPU smoke test가 통과한다.
+- [ ] 데이터 split과 sample ID를 보존한다.
+- [ ] Voxel spacing, sampling factor와 offset을 기록한다.
+- [ ] 대용량 파일, credential 또는 개인 절대 경로가 없다.
+- [ ] 연구 프로토콜에 영향을 주는 변경을 문서에 함께 반영했다.
 
 ## Review 기준
 
-### Data/infra review
+### Data
 
-- File metadata와 axis가 실제로 검증되었는가?
-- Split leakage가 구조적으로 불가능한가?
-- Physical voxel spacing이 sampling 후 올바르게 갱신되는가?
+- Grayscale과 binary crop이 같은 좌표인가?
+- Source polarity를 확인한 뒤 내부 `pore=1`로 변환하는가?
+- Parent-core split 이후에 crop을 생성하는가?
+- Sparse input, observed mask와 primary metric mask가 정렬되는가?
 
-### Model review
+### Model and loss
 
-- G1이 원본 SAINT 동작을 불필요하게 바꾸지 않는가?
-- AMI/RFN stage와 FDM input이 문서화되었는가?
-- G2가 architecture가 아닌 loss만 바꾸는가?
-- E3가 동일 seed의 E2 checkpoint에서 시작하고 AMI freeze 원칙을 지키는가?
-- E3의 3D full-volume composition과 gradient-flow mask가 검증되었는가?
+- Sagittal/coronal AMI가 가중치를 공유하는가?
+- FDM이 physical spacing을 사용하는가?
+- Spatial size가 `512` 등에 하드코딩되지 않았는가?
+- E3 observed slice를 통해 gradient가 흐르지 않는가?
+- Empty/constant phantom에서 NaN이 발생하지 않는가?
 
-### Evaluation review
+### Evaluation
 
-- Observed slice가 missing-slice metric에서 제외되는가?
-- Data range와 SSIM implementation이 고정되었는가?
-- Segmentation과 permeability 조건이 model 간 동일한가?
-- Slice를 독립 통계 표본으로 취급하지 않는가?
+- Primary 영상지표가 bracketed missing mask를 사용하는가?
+- 모든 모델에 동일한 segmentation과 solver를 사용하는가?
+- Slice나 voxel을 독립 통계 표본으로 취급하지 않는가?
+- Non-percolating prediction을 임의의 작은 permeability로 대체하지 않는가?
