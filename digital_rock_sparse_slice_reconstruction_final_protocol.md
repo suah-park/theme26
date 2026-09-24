@@ -4,9 +4,10 @@
 - 상태: Phase 0 - upstream 재현 및 데이터 audit
 - Primary dataset: 11 Sandstones filtered grayscale Micro-CT
 - Primary scale: x4 along z
+- Spatial crop: 256 x 256 x 256
 - Primary model: original SAINT architecture, L1 loss
-- First ablation: 2D gradient loss
-- 3D topology-aware loss: baseline 완료 후 조건부 확장
+- First ablation: 2D gradient loss, lambda 0.1
+- 3D topology-aware loss: 현재 실험 범위에서 제외
 
 ---
 
@@ -18,11 +19,11 @@
 2. Primary dataset은 11 Sandstones의 filtered grayscale이다.
 3. 데이터 split은 parent-core 단위 8/1/2를 사용한다.
 4. x4 z-subsampling과 원본 SAINT + L1을 첫 번째 핵심 실험으로 한다.
-5. x2, x6, raw grayscale은 x4 기준선 이후에 수행한다.
-6. Gradient loss는 L1 기준선 다음의 첫 ablation이다.
+5. 모든 primary experiment에서 `256 x 256 x 256` spatial crop과 x4를 고정한다.
+6. Gradient loss는 `lambda_grad=0.1`로 고정한 첫 ablation이다.
 7. Binary segmentation은 학습 target이 아니라 구조·물성 평가 reference이다.
-8. 3D topology-aware loss는 Phase 1 필수 항목에서 제외한다.
-9. Topology loss는 G1/G2에서 실제 연결성 실패가 확인된 경우에만 도입한다.
+8. 3D topology-aware loss는 현재 실험 범위에서 제외한다.
+9. Topology와 permeability는 frozen prediction의 사후 평가에만 사용한다.
 
 핵심 연구 질문은 다음과 같다.
 
@@ -47,14 +48,16 @@
 - Missing-slice MAE, PSNR, SSIM 평가
 - Gradient-loss ablation
 - 동결된 segmentation protocol을 이용한 구조 평가
+- z-direction permeability 평가
 
-### 1.2 기준선 완료 후 범위
+### 1.2 현재 실험 범위 외
 
 - x2 및 x6 scale
 - raw grayscale robustness
-- morphology, connectivity 및 permeability 평가
 - Independent 2D 또는 3D CNN 비교군
 - 3D topology-aware fine-tuning
+- Gradient-loss weight search
+- GAN 또는 architecture search
 
 ### 1.3 현재 제외
 
@@ -217,10 +220,12 @@ Test core별 최적 percentile이나 contrast 조정은 허용하지 않는다. 
 
 ### 4.3 Spatial crop
 
-- Rock 외부 배경이 loss를 지배하지 않도록 valid rock ROI를 정의한다.
-- ROI mask 생성 규칙은 model output을 보지 않고 동결한다.
-- 동일한 test ROI를 모든 model에 사용한다.
-- Headline metric은 서로 같은 physical extent에서 계산한다.
+- 모든 train/validation/test spatial crop은 `256 x 256 x 256`으로 고정한다.
+- Parent-core split을 먼저 적용한 후 training crop을 온라인으로 추출한다.
+- Validation/test crop 좌표는 versioned manifest에 동결한다.
+- Rock 외부 배경이 loss를 지배하지 않도록 valid rock ROI를 model output과 독립적으로 정의한다.
+- `SAINT patch_size=10`은 sparse axis의 내부 2D strip 길이며 3D crop size와 다른 설정이다.
+- Headline metric은 모든 model에서 동일한 물리적 범위에 계산한다.
 
 ### 4.4 Augmentation
 
@@ -236,7 +241,7 @@ z축과 x/y축 교환은 rock anisotropy와 reconstruction axis를 바꾸므로 
 
 ## 5. 비교 실험
 
-### G0. Linear interpolation
+### E0. Linear interpolation
 
 두 observed slice 사이 상대 위치에 따라 grayscale intensity를 선형 보간한다.
 
@@ -244,13 +249,13 @@ z축과 x/y축 교환은 rock anisotropy와 reconstruction axis를 바꾸므로 
 \hat I_{z+j}=\left(1-\frac{j}{r}\right)I_z+\frac{j}{r}I_{z+r}
 \]
 
-역할:
+목적:
 
 - 비학습 sanity baseline
 - axis, offset 및 output alignment 검증
 - SAINT가 단순 interpolation보다 유효한지 확인
 
-### G1. Original SAINT on grayscale rock
+### E1. Original SAINT on grayscale rock
 
 SAINT의 두 단계 구조를 유지한다.
 
@@ -288,7 +293,7 @@ Sagittal/coronal 결과의 평균에 residual correction을 더한다.
 I_{fuse}=I_{avg}+F(I_{sag},I_{cor})
 \]
 
-#### G1 loss
+#### E1 loss
 
 원 논문 기준선과 같이 L1을 사용한다.
 
@@ -298,12 +303,12 @@ I_{fuse}=I_{avg}+F(I_{sag},I_{cor})
 
 AMI와 RFN의 stage별 loss 정의와 mask 범위는 upstream 코드 확인 후 문서화한다. 포팅 과정에서 loss 범위를 조용히 변경하지 않는다.
 
-### G2. SAINT + gradient loss
+### E2. SAINT + gradient loss
 
-G1과 architecture, data, split 및 optimizer를 동일하게 유지하고 loss만 변경한다.
+E1과 architecture, data, split 및 optimizer를 동일하게 유지하고 loss만 변경한다.
 
 \[
-\mathcal L_{G2}=\mathcal L_{L1}+\lambda_g\mathcal L_{grad}
+\mathcal L_{E2}=\mathcal L_{L1}+\lambda_g\mathcal L_{grad}
 \]
 
 2D finite difference를 다음처럼 정의한다.
@@ -322,26 +327,11 @@ D_yI_{i,j}=I_{i,j+1}-I_{i,j}
 +\|D_y\hat I-D_yI\|_1
 \]
 
-초기 비교 후보는 다음과 같다.
+Normalized `[0,1]` intensity에서 `lambda_grad=0.10`으로 고정한다. 현재 실험에서 lambda search를 수행하지 않는다.
 
-```text
-lambda_grad: 0.05, 0.10
-```
+### Future work: 3D topology-aware SAINT
 
-후보 선택은 validation missing-slice MAE와 gradient MAE를 함께 보고 수행한다. Test 결과로 lambda를 선택하지 않는다.
-
-3D gradient 또는 z-gradient를 추가할 경우 G2와 섞지 않고 `G2-3D`로 별도 실험한다.
-
-### T1. 3D topology-aware SAINT
-
-현재 필수 실험이 아니다. 다음 조건이 모두 충족될 때만 시작한다.
-
-- G1과 G2가 재현 가능하게 완료됨
-- segmentation operator가 동결됨
-- grayscale 지표는 양호하지만 pore-throat disconnection이 반복됨
-- 충분한 GPU 시간과 3D subvolume batch가 확보됨
-
-Loss와 구현 선택은 별도 decision record에서 승인한다.
+3D topology-aware loss는 현재 primary experiment에서 제외한다. 연결성 실패가 관찰되더라도 이번 비교에서는 학습 loss를 추가하지 않고 제한점으로 보고한다.
 
 ---
 
@@ -537,30 +527,19 @@ GT는 percolating하지만 prediction이 non-percolating인 경우 임의의 작
 
 ### Phase 1 - 핵심 grayscale baseline
 
-| ID | Data | Scale | Model/Loss | Seeds |
-|---|---|---:|---|---:|
-| G0-x4 | Filtered grayscale | x4 | linear | deterministic |
-| G1-x4 | Filtered grayscale | x4 | SAINT + L1 | 3 |
-| G2a-x4 | Filtered grayscale | x4 | SAINT + L1 + 0.05 gradient | 3 |
-| G2b-x4 | Filtered grayscale | x4 | SAINT + L1 + 0.10 gradient | 3 |
+| ID | Data | Crop | Scale | Model/Loss | Seeds |
+|---|---|---:|---:|---|---:|
+| E0 | Filtered grayscale | 256^3 | x4 | linear | deterministic |
+| E1 | Filtered grayscale | 256^3 | x4 | SAINT + L1 | 1, 2, 3 |
+| E2 | Filtered grayscale | 256^3 | x4 | SAINT + L1 + 0.10 gradient | 1, 2, 3 |
 
-Validation으로 G2a/G2b 중 하나를 선택한 뒤 test를 한 번 평가한다.
+### Future work - robustness
 
-### Phase 2 - robustness
+x2/x6 scale과 raw-grayscale robustness는 현재 실험 매트릭스에 등록하지 않는다. 필요할 경우 별도 decision record와 config로 정의한다.
 
-| ID | Data | Scale | Purpose |
-|---|---|---:|---|
-| G1-x2 | Filtered grayscale | x2 | unseen/easier scale |
-| G1-x6 | Filtered grayscale | x6 | larger gap |
-| G1-raw-x4 | Raw grayscale | x4 | acquisition-noise robustness |
+### Phase 2 - property evaluation
 
-### Phase 3 - property evaluation
-
-G0/G1/selected G2의 frozen predictions에 동일 segmentation과 solver를 적용한다.
-
-### Phase 4 - conditional topology extension
-
-Go/no-go gate를 통과한 경우 x4에서 먼저 수행한다.
+E0/E1/E2의 frozen predictions에 동일 segmentation과 solver를 적용한다. Topology와 permeability는 학습 설정 선택에 사용하지 않는다.
 
 ---
 
@@ -575,10 +554,9 @@ Go/no-go gate를 통과한 경우 x4에서 먼저 수행한다.
 
 주요 비교:
 
-1. G0 vs G1: 학습 기반 SAINT의 효과
-2. G1 vs G2: gradient loss의 효과
-3. x2 vs x4 vs x6: slice gap의 영향
-4. Grayscale error와 connectivity/permeability error의 관계
+1. E0 vs E1: 학습 기반 SAINT의 효과
+2. E1 vs E2: gradient loss의 효과
+3. Grayscale error와 connectivity/permeability error의 관계
 
 ---
 
@@ -604,6 +582,8 @@ sampling_offset
 hr_voxel_spacing_um
 lr_voxel_spacing_um
 roi_id
+crop_origin_xyz
+crop_size_xyz
 seed
 loss_name
 loss_weights
@@ -636,36 +616,28 @@ Git에 포함하지 않음:
 
 ---
 
-## 12. 팀별 인수인계
+## 12. 저장 및 실행 계약
 
-### Team A to Team B
+Code, data, run artifact는 다음처럼 분리한다.
 
-- Audited dataset metadata
-- Frozen split manifest
-- Normalization config
-- Axis convention and sparse sampling tests
-- Train/validation/test access method
+```text
+/project/<group>/theme26/
+/project/<group>/data/11_sandstones/
+/project/<group>/runs/theme26/
+```
 
-### Team B to Team A/C
+- Raw data와 checkpoint는 Git 외부의 persistent project storage에 보관한다.
+- GPU 학습은 Slurm에 GPU 1장을 요청해 시작한다.
+- 초기 resource request는 GPU 1, CPU 8 cores, RAM 64 GB, batch size 8을 기준으로 한다.
+- CUDA OOM이 발생하면 `256^3` protocol을 바꾸지 않고 batch size를 줄인다.
+- 전체 학습 전에 one-batch overfit test로 loss 감소와 output shape를 확인한다.
+- 서버별 partition, GPU resource 표기와 실제 path는 local config에서만 변경한다.
 
-- Pinned upstream commit
-- Model/config entry point
-- Tensor shape contract
-- Required GPU memory
-- Checkpoint and prediction metadata
-- Known deviations from upstream
-
-### Team C to all
-
-- Metric implementation/version
-- Frozen segmentation protocol
-- Raw metric table and summary
-- Permeability solver settings/convergence
-- Failure cases and interpretation limits
+실행 예시는 [Data storage and GPU Slurm execution](docs/operations/storage-and-slurm.md)을 따른다.
 
 ---
 
-## 13. Go/no-go gates
+## 13. Acceptance gates
 
 ### Gate A - 데이터 준비 완료
 
@@ -681,26 +653,24 @@ Git에 포함하지 않음:
 - FDM spacing semantics 확인
 - Pinned commit 기록
 
-### Gate C - G1 완료
+### Gate C - E1 완료
 
 - Three-seed x4 L1 training 완료
 - Test core prediction 동결
 - Missing-slice metrics 산출
 
-### Gate D - G2 완료
+### Gate D - E2 완료
 
 - Gradient implementation unit test
-- Validation-only lambda 선택
-- Same-seed paired G1/G2 comparison
+- `lambda_grad=0.1` config 확인
+- Same-seed paired E1/E2 comparison
 
-### Gate E - topology 필요성 판단
+### Gate E - structure and physics 평가 완료
 
-다음 중 하나가 반복되면 topology extension을 검토한다.
-
-- PSNR/SSIM은 개선되지만 pore connectivity가 악화
-- Thin throat disconnection이 대표 failure mode
-- Gradient loss가 edge를 선명하게 하지만 false connection을 증가
-- Permeability error가 grayscale metric과 낮은 상관을 보임
+- Frozen segmentation을 E0/E1/E2에 동일하게 적용
+- `256^3` test block에서 morphology/connectivity 계산
+- Solver 설정과 수렴 기준을 고정한 permeability 계산
+- Grayscale, topology, physics 결과를 서로 분리해 보고
 
 ---
 
@@ -739,22 +709,23 @@ Git에 포함하지 않음:
 - [ ] Artifact/intensity/porosity audit
 - [ ] 8/1/2 split manifest 동결
 - [ ] Normalization config 동결
+- [ ] `256^3` crop loader 및 fixed validation/test crop manifest
 
 ### Baseline
 
 - [ ] x4 sampling unit test
 - [ ] Linear interpolation alignment test
 - [ ] One-core end-to-end dry run
-- [ ] G1 AMI training
-- [ ] G1 RFN training
-- [ ] Three-seed G1 test predictions
+- [ ] E1 AMI training
+- [ ] E1 RFN training
+- [ ] Seeds 1/2/3 E1 test predictions
 
 ### Gradient
 
 - [ ] Finite-difference unit test
 - [ ] Constant/ramp/edge phantom test
-- [ ] Lambda 0.05/0.10 validation comparison
-- [ ] Selected G2 three-seed test predictions
+- [ ] `lambda_grad=0.10` config 고정
+- [ ] Seeds 1/2/3 E2 test predictions
 
 ### Evaluation
 
@@ -764,14 +735,6 @@ Git에 포함하지 않음:
 - [ ] Morphology/connectivity metrics
 - [ ] Permeability solver consistency
 - [ ] Core/block-level confidence intervals
-
-### Decision
-
-- [ ] Topology extension go/no-go
-- [ ] Independent 2D/3D baseline 필요성 재검토
-- [ ] x2/x6/raw robustness 우선순위 확정
-
----
 
 ## 16. 주장 범위
 
@@ -807,6 +770,15 @@ Git에 포함하지 않음:
 - Core-level 8/1/2 split 원칙 추가
 - x4 L1 SAINT를 핵심 baseline으로 변경
 - Gradient loss를 첫 ablation으로 추가
-- Topology loss를 조건부 후속 단계로 이동
+- Topology loss를 초기 필수 범위에서 제외
 - Primary metric을 missing-slice Dice에서 MAE/PSNR/SSIM으로 변경
 - Segmentation을 학습 target에서 frozen evaluation stage로 이동
+
+### 2026-09-24 - experiment scope freeze
+
+- Spatial crop을 `256 x 256 x 256`으로 고정
+- Primary scale을 x4로 고정
+- E0/E1/E2 비교와 seeds 1/2/3을 primary experiment로 고정
+- Gradient weight를 `lambda_grad=0.10`으로 고정
+- 3D topology loss, x2/x6, raw robustness 및 architecture search를 현재 범위에서 제외
+- Data/storage/Slurm 실행 계약 추가

@@ -1,13 +1,15 @@
 # Contributing
 
-이 프로젝트의 우선순위는 빠른 모델 변경보다 재현 가능한 grayscale SAINT baseline입니다. 모든 변경은 [연구 프로토콜](digital_rock_sparse_slice_reconstruction_final_protocol.md)의 phase와 go/no-go gate를 따라야 합니다.
+이 프로젝트의 우선순위는 빠른 모델 변경보다 재현 가능한 grayscale SAINT baseline입니다. 모든 변경은 [연구 프로토콜](digital_rock_sparse_slice_reconstruction_final_protocol.md)의 고정 실험 조건과 acceptance gate를 따라야 합니다.
 
 ## 기본 원칙
 
 - Primary data는 11 Sandstones filtered grayscale입니다.
 - Split은 parent-core 단위이며 patch 생성보다 먼저 적용합니다.
 - Primary experiment는 x4 SAINT + L1입니다.
-- Gradient loss는 G1 baseline 완료 후 별도 ablation으로 추가합니다.
+- 모든 primary spatial crop은 `256 x 256 x 256`입니다.
+- Gradient loss는 E1 baseline 완료 후 E2 ablation으로 추가합니다.
+- Gradient weight는 normalized `[0,1]` intensity에서 `0.1`로 고정합니다.
 - Binary segmentation은 evaluation reference이며 model target이 아닙니다.
 - 3D topology loss는 현재 기본 구현 범위가 아닙니다.
 - Test 결과로 checkpoint, loss weight, normalization, segmentation threshold 또는 hyperparameter를 선택하지 않습니다.
@@ -15,13 +17,13 @@
 
 ## 작업 절차
 
-1. Issue에 goal, input, expected output, acceptance criteria, owner, reviewer, dependency를 작성합니다.
-2. `develop`에서 역할에 맞는 branch를 생성합니다.
+1. Issue에 goal, input, expected output, acceptance criteria와 dependency를 작성합니다.
+2. `develop`에서 변경 주제에 맞는 branch를 생성합니다.
 3. 관련 protocol section과 기존 decision record를 확인합니다.
 4. 작은 단위로 구현하고 unit/smoke test를 추가합니다.
 5. PR에 재현 명령, 검증 결과, 실험 영향 및 artifact 위치를 기록합니다.
-6. 다른 팀의 교차 검토 후 `develop`에 병합합니다.
-7. Go/no-go gate를 통과한 milestone만 `main`에 병합합니다.
+6. 코드와 실험 조건 검토 후 `develop`에 병합합니다.
+7. Protocol acceptance gate를 통과한 변경만 `main`에 병합합니다.
 
 ## Branch 이름
 
@@ -83,9 +85,9 @@ docs(protocol): record segmentation freeze decision
 - Segmentation operator
 - Test ROI/block
 - Permeability solver 또는 boundary condition
-- Topology-loss go/no-go
+- Topology-loss 범위 변경 제안
 
-Decision record에는 context, decision, alternatives, consequences, approver를 포함합니다.
+Decision record에는 context, decision, alternatives, consequences를 포함합니다.
 
 ## 실험 기록 필수 항목
 
@@ -123,7 +125,7 @@ segmentation_protocol_version
 - SAINT upstream repository의 commit hash를 모든 재현 실험에 기록합니다.
 - SAINT upstream에는 명시적인 license file이 확인되지 않았으므로 코드를 이 repository에 그대로 복사하거나 수정본을 재배포하지 않습니다.
 - 외부 코드가 필요하면 dependency, submodule, patch 또는 재구현 중 어떤 방식인지 PR에 명확히 적습니다.
-- 라이선스가 불명확하면 공개 merge 전에 integration lead와 확인합니다.
+- 라이선스가 불명확하면 조건 확인 전에 공개 merge하지 않습니다.
 
 ## Review 기준
 
@@ -145,4 +147,3 @@ segmentation_protocol_version
 - Data range와 SSIM implementation이 고정되었는가?
 - Segmentation과 permeability 조건이 model 간 동일한가?
 - Slice를 독립 통계 표본으로 취급하지 않는가?
-

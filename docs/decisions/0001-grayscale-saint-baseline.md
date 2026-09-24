@@ -1,9 +1,7 @@
-# 0001 - Grayscale SAINT baseline before topology-aware training
+# 0001 - Grayscale SAINT baseline and evaluation-first topology policy
 
 - Date: 2026-09-24
 - Status: Accepted
-- Owners: Research team
-- Approver: `TBD`
 
 ## Context
 
@@ -20,7 +18,7 @@ The team wants to apply SAINT to digital rock while preserving the original meth
 5. Reproduce the original SAINT architecture and L1 objective before adding new loss terms.
 6. Use 2D finite-difference gradient loss as the first isolated ablation after the L1 baseline.
 7. Treat provided binary volumes as structure-evaluation references, not training targets.
-8. Defer 3D topology-aware loss until the grayscale baseline, frozen segmentation and connectivity analysis are complete.
+8. Keep 3D topology-aware loss outside the current experiment and evaluate topology after inference.
 
 ## Alternatives considered
 
@@ -38,20 +36,18 @@ Deferred to robustness testing. Filtered grayscale reduces acquisition noise dur
 
 ### Multi-scale training from the beginning
 
-Deferred. x4 is primary because it aligns with the upstream checkpoint and published experiment. x2 and x6 will be added after the x4 baseline is frozen.
+Rejected for the current experiment. x4 is the only primary scale because it aligns with the upstream checkpoint and published experiment. Any later scale extension requires a separate decision.
 
 ## Consequences
 
 - Primary image metrics change from Dice/IoU to missing-slice MAE, PSNR and SSIM.
 - A segmentation protocol must be frozen before topology or permeability comparisons.
 - Earlier binary-specific BCE/Dice and fixed threshold 0.5 requirements are removed from the main protocol.
-- The first implementation milestone is upstream reproduction, not a new architecture.
-- Topology-aware modeling becomes a go/no-go decision supported by observed failure modes.
+- The first implementation gate is upstream reproduction, not a new architecture.
+- Topology-aware modeling remains outside the current experiment and requires a separate decision.
 
 ## Required follow-up
 
-- Assign an approver.
 - Audit all 11 cores and freeze the exact split manifest.
 - Pin the upstream SAINT commit and document its execution environment.
 - Resolve upstream code redistribution conditions before copying any source into this repository.
-
