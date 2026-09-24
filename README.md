@@ -1,492 +1,315 @@
-# Sparse-slice Digital Rock 3D Reconstruction
+# Grayscale Sparse-slice Digital Rock Reconstruction with SAINT
 
-GitHub repository: `theme26`
+SAINT(Spatially Aware Interpolation NeTwork)을 grayscale Micro-CT digital rock에 이전해, z축에서 누락된 단면을 복원하는 연구 프로젝트입니다.
 
-SAINT 기반 sparse-to-dense reconstruction을 binary Micro-CT digital rock에 적용하고, 영상 정확도뿐 아니라 3D 공극 연결성과 투과도 보존까지 검증하는 연구 프로젝트입니다.
+현재 목표는 새로운 모델을 바로 설계하는 것이 아니라 다음 순서로 신뢰할 수 있는 기준선을 확보하는 것입니다.
 
-## 1. 연구 목표
+1. 공개 SAINT 코드를 현재 환경에서 재현합니다.
+2. 11 Sandstones의 grayscale volume으로 원본 SAINT + L1 기준선을 학습합니다.
+3. Gradient loss가 pore-grain 경계와 z축 연속성에 주는 효과를 분리해 측정합니다.
+4. 복원된 grayscale volume을 고정된 segmentation protocol로 평가해 구조와 물성을 확인합니다.
+5. 3D topology loss는 위 단계가 완료되고 연결성 실패가 확인된 경우에만 후속 실험으로 추가합니다.
 
-z축 방향으로 희소하게 관측된 binary Micro-CT volume이 주어졌을 때 다음 질문을 검증합니다.
+상세한 정의와 실험 규칙은 [연구 프로토콜](digital_rock_sparse_slice_reconstruction_final_protocol.md)을 따릅니다.
 
-> SAINT 기반 cross-view volume reconstruction이 각 누락 단면을 독립적으로 복원하는 2D 모델보다 3차원 공극 연결성과 z 방향 투과도를 더 잘 보존하는가?
+## 현재 연구 질문
 
-이번 포스터 연구는 SOTA 달성을 주장하기보다 동일한 sparse input과 split에서 복원 방식의 차이를 검증하는 데 목적이 있습니다.
+> 원래의 SAINT 구조와 L1 학습을 grayscale digital rock에 적용했을 때, 선형 보간보다 누락 단면의 영상 품질과 3D pore 구조를 더 잘 보존하는가?
 
-상세 프로토콜은 [최종 연구 프로토콜](digital_rock_sparse_slice_reconstruction_final_protocol.md)을 참고하세요.
+후속 질문은 다음과 같습니다.
 
-## 2. 필수 실험 범위
+> L1에 gradient loss를 추가하면 PSNR/SSIM을 크게 희생하지 않으면서 pore-grain 경계와 z축 연속성을 개선하는가?
 
-### 비교 모델
+Topology-aware loss는 현재 필수 범위가 아닙니다. SAINT baseline의 재현과 grayscale domain adaptation을 먼저 완료합니다.
 
-| ID | 모델 | 역할 | 우선순위 |
-|---|---|---|---|
-| A0 | Linear interpolation | 비학습 sanity baseline | 필수 |
-| A1 | Independent 2D reconstruction | 누락 axial slice를 독립적으로 예측 | 필수 |
-| B | SAINT-Rock | SAINT의 AMI와 RFN을 binary digital rock에 적용 | 필수 |
-| C | SAINT-Rock + topology-aware loss | 3D topology constraint 효과 검증 | Phase 2 |
+## 데이터
 
-### 관측 조건
+### Primary dataset: 11 Sandstones
 
-- 주 데이터: Binary pore/solid Micro-CT volume
-- 저해상도 축: z축만 downsampling
-- Sparse input: 관측 단면 5장
-- 관측 간격: `r=2`, `r=4`
-- 권장 patch: `128 x 128`
-- Primary threshold: `0.5`
-- 학습 모델 반복: 최소 3 random seeds
+- 출처: [Digital Porous Media Portal - 11 Sandstones](https://digitalporousmedia.org/datasets/317/)
+- DOI: [10.17612/F4H1-W124](https://doi.org/10.17612/F4H1-W124)
+- 라이선스: ODC-By 1.0
+- 구성: 서로 다른 sandstone core 11개
+- 크기: core당 `1000 x 1000 x 1000` voxels
+- voxel spacing: `2.25 um` isotropic
+- 제공 형식: raw grayscale, filtered grayscale, binary segmentation
 
-### 핵심 평가 지표
+Primary 입력과 정답은 `*_grayscale_filtered.raw`입니다. Filtered grayscale로 파이프라인을 안정화한 뒤 raw grayscale을 robustness 실험으로 추가합니다. 제공된 binary volume은 모델 입력이나 학습 정답이 아니라, 후속 구조 평가의 reference로만 사용합니다.
 
-1. Missing-slice Dice
-2. Absolute porosity error
-3. Euler characteristic density error
-4. z 방향 percolating porosity error
-5. z 방향 permeability log-error
+원본 데이터와 파생 patch는 Git에 올리지 않습니다.
 
-## 3. 전체 연구 흐름
+### Split 원칙
+
+- Split 단위는 slice나 patch가 아니라 parent core입니다.
+- 목표 비율은 train 8 core / validation 1 core / test 2 core입니다.
+- 정확한 core 배정은 intensity, porosity 및 artifact audit 후 manifest로 동결합니다.
+- Split manifest가 동결되기 전에는 headline experiment를 실행하지 않습니다.
+- 동일 core에서 나온 patch가 둘 이상의 split에 포함되면 안 됩니다.
+
+## 문제 설정
+
+고해상도 grayscale volume을 다음과 같이 둡니다.
 
 ```text
-Dense binary Micro-CT volume
-             |
-             v
-Parent-core / spatial-block split
-             |
-             v
-z-axis sparse sampling (r=2, r=4)
-             |
-        +----+----------------+----------------+
-        |                     |                |
-        v                     v                v
-   A0 Linear          A1 Independent 2D   B SAINT-Rock
-        |                     |                |
-        +---------------------+----------------+
-                              |
-                              v
-                 Dense reconstructed test block
-                              |
-           +------------------+------------------+
-           |                  |                  |
-           v                  v                  v
-        Image            Connectivity       Permeability
+I_HR: [H, W, D], float32, normalized to [0, 1]
 ```
 
-## 4. 팀 구성 및 역할 분배
+저해상도 입력은 z축에서만 stride sampling하여 생성합니다.
 
-프로젝트는 세 팀으로 운영합니다. 실제 담당자 이름은 아래 표의 `담당자`와 `교차 검토자` 열에 기록합니다.
+```python
+I_LR = I_HR[:, :, offset::r]
+```
 
-### Team A. GPU·실험운영팀
+공간 해상도는 반드시 함께 기록합니다.
 
-**목표:** 누구나 동일한 조건에서 학습·추론을 재현할 수 있도록 데이터, 환경, GPU 작업과 실험 기록을 관리합니다.
+| Scale | HR spacing `(x,y,z)` | LR spacing `(x,y,z)` |
+|---:|---|---|
+| x2 | `(2.25, 2.25, 2.25) um` | `(2.25, 2.25, 4.50) um` |
+| x4 | `(2.25, 2.25, 2.25) um` | `(2.25, 2.25, 9.00) um` |
+| x6 | `(2.25, 2.25, 2.25) um` | `(2.25, 2.25, 13.50) um` |
 
-주요 업무:
+Primary experiment는 공개 checkpoint와 원 논문의 주요 조건에 맞춰 `x4`로 시작합니다. `x2`와 `x6`은 x4 기준선이 고정된 뒤 수행합니다.
 
-- 데이터 경로, split manifest 및 sparse sampling 규칙 관리
-- 공통 Python/PyTorch 환경과 dependency 고정
-- GPU 배정표 및 job queue 관리
-- 공통 train/inference entry point와 config 규격 관리
-- Seed, checkpoint, log, runtime 및 GPU memory 기록
-- 중단된 학습의 resume 및 checkpoint 보존 정책 관리
-- 모델별 실험 완료 여부와 실패 원인 기록
-- Team B가 전달한 모델을 동일 조건으로 실행
-- Team C가 사용할 prediction volume 및 metadata 전달
+## 실험 단계
 
-필수 산출물:
-
-- 고정된 `train/validation/test` split manifest
-- `r=2`, `r=4` 데이터 생성 확인 결과
-- 환경 설치 문서
-- 실험별 config, log, best checkpoint
-- Test prediction volume과 실행 metadata
-
-완료 기준:
-
-- 동일 config와 seed로 재실행 가능
-- Best checkpoint가 validation 기준으로 선택됨
-- Test set을 이용한 checkpoint 선택이 없음
-- 모델별 입력 patch와 test block이 동일함
-
-### Team B. 모델·방법론팀
-
-**목표:** 비교 모델을 구현하고 architecture와 loss의 차이를 통제합니다.
-
-주요 업무:
-
-- A0 Linear interpolation 구현
-- A1 Independent 2D reconstruction 구현
-- SAINT 원 코드와 논문 구조 확인
-- B SAINT-Rock의 AMI 및 RFN 구현·포팅
-- Binary pore-probability output 적용
-- Missing-position BCE + Dice loss 구현
-- Observed slice hard-copy 로직 구현
-- Unit test 및 tensor shape 검증
-- Phase 2 topology-aware loss 후보 검토 및 구현
-- 모델별 parameter count 및 inference 요구량 정리
-
-필수 산출물:
-
-- A0/A1/B 실행 코드
-- 모델별 입출력 tensor 규격
-- Loss 및 observation mask 검증 코드
-- AMI Stage 1과 RFN Stage 2 checkpoint
-- Architecture diagram 및 방법 설명
-
-완료 기준:
-
-- 모든 모델이 동일 sparse input에서 실행됨
-- A1/B에 동일 BCE+Dice와 checkpoint 기준 적용
-- 관측 단면이 최종 volume에서 원본값으로 유지됨
-- Validation/Test 데이터 누출이 없음
-
-### Team C. 평가·결과정리팀
-
-**목표:** 모델 결과를 동일한 지표와 물리 조건으로 평가하고 포스터용 근거를 만듭니다.
-
-주요 업무:
-
-- Missing-slice Dice, IoU 및 voxel error 계산
-- Porosity, specific surface 및 pore-size 지표 계산
-- Euler characteristic 및 connected-component 분석
-- z 방향 percolating porosity와 disconnection rate 계산
-- 동일 solver·경계조건으로 GT/prediction permeability 계산
-- `r=2`, `r=4` 및 모델별 paired comparison
-- 3 seeds 통합, confidence interval 및 통계 분석
-- 구조 오차와 permeability error의 correlation 분석
-- 정성 결과, 3D rendering, 그래프 및 표 제작
-- 포스터 결과·결론 문구 작성
-
-필수 산출물:
-
-- 평가 코드와 metric definition 문서
-- 모델별 raw metric table
-- 통합 summary table과 figure
-- Permeability solver 설정 및 convergence 기록
-- 포스터용 결과 패널과 결과 서술 초안
-
-완료 기준:
-
-- 관측 단면을 제외한 missing-slice metric을 별도 보고
-- 충분히 큰 동일 test block에서 물성 비교
-- 모든 모델에 threshold 0.5를 동일 적용
-- Non-percolating prediction을 임의의 작은 permeability로 대체하지 않음
-- 그래프의 모든 값이 raw result로 역추적 가능
-
-## 5. 담당자 배정표
-
-프로젝트 시작 회의에서 이름을 입력합니다. 각 작업에는 주 담당자와 다른 팀의 교차 검토자를 한 명씩 둡니다.
-
-| 팀 | 담당자 | 교차 검토자 | 주요 책임 |
+| 단계 | 실험 | Loss | 상태/우선순위 |
 |---|---|---|---|
-| Team A: GPU·실험운영 | `TBD` | `TBD` | 환경, split, GPU, config, checkpoint, prediction export |
-| Team B: 모델·방법론 | `TBD` | `TBD` | A0/A1/B 구현, loss, SAINT 포팅, topology 확장 |
-| Team C: 평가·결과 | `TBD` | `TBD` | 구조·연결성·투과도 평가, 통계, figure, 포스터 |
-| Integration lead | `TBD` | - | 일정 조정, interface 승인, 최종 merge 및 포스터 범위 결정 |
+| R0 | Upstream SAINT inference 재현 | upstream 설정 | 최우선 |
+| D0 | 데이터 로더·spacing·z sampling 검증 | 없음 | 최우선 |
+| G0 | Linear z interpolation | 없음 | 필수 baseline |
+| G1 | Original SAINT on grayscale rock | L1 | 핵심 실험 |
+| G2 | SAINT + gradient loss | L1 + gradient | G1 이후 |
+| G3 | x2/x6 및 raw grayscale robustness | G1/G2와 동일 | 후속 |
+| T1 | SAINT + 3D topology-aware loss | 미정 | 조건부 후속 |
 
-## 6. 팀 간 인수인계 규격
+Independent 2D, direct 3D CNN, diffusion model은 현재 최소 실험 범위에 포함하지 않습니다. 필요하면 G1/G2가 완료된 뒤 비교군 확장으로 별도 결정합니다.
 
-### Team A → Team B
+## Loss
 
-- Split manifest
-- Sparse sampling config
-- Patch tensor shape
-- Pore/solid label convention
-- Voxel spacing
-- Train/validation/test 데이터 접근 방법
-
-### Team B → Team A
-
-- Model entry point
-- Default config
-- 예상 GPU memory
-- Checkpoint selection metric
-- Resume 방법
-- Prediction export format
-
-### Team A/B → Team C
-
-Prediction마다 다음 metadata를 함께 제공합니다.
+### G1: 원본 기준선
 
 ```text
-model_id
+L_rec = mean(abs(I_pred - I_HR))
+```
+
+원본 SAINT와 동일하게 L1을 사용합니다. 모델이 직접 예측하지 않은 observed slice를 metric에 포함해 성능을 부풀리지 않습니다.
+
+### G2: Gradient ablation
+
+```text
+L_total = L1 + lambda_grad * L_grad
+```
+
+Gradient loss는 역전파 gradient가 아니라 인접 voxel 사이의 intensity 변화량을 비교합니다.
+
+```text
+L_grad = |Dx(pred)-Dx(gt)| + |Dy(pred)-Dy(gt)|
+```
+
+첫 실험은 SAINT가 처리하는 2D sagittal/coronal output에 적용합니다. 최종 volume의 3D gradient와 z-gradient는 별도 ablation으로 취급합니다. 초기 `lambda_grad` 후보는 `{0.05, 0.1}`이며 validation set에서만 선택합니다.
+
+## 평가
+
+### Primary grayscale metrics
+
+모든 지표는 원래 관측된 slice를 제외한 missing slice 위치에서 계산합니다.
+
+1. MAE/L1
+2. PSNR
+3. SSIM
+4. Gradient MAE
+5. 관측 slice로부터의 상대 위치별 오차
+
+Primary checkpoint selection metric은 validation missing-slice MAE입니다. Test set으로 epoch, loss weight, normalization 또는 threshold를 선택하지 않습니다.
+
+### Secondary structure and physics metrics
+
+G1 기준선이 완료된 뒤 동일한 고정 segmentation operator를 GT와 모든 prediction에 적용합니다.
+
+- Dice/IoU against provided binary reference
+- Absolute porosity error
+- Specific surface area error
+- Pore-size distribution distance
+- Euler characteristic density error
+- Largest connected component ratio
+- z-percolating porosity and failure rate
+- z-direction permeability log-error
+
+Segmentation threshold나 segmenter는 training/validation 자료만으로 동결하고 모든 test model에 동일하게 적용합니다. 모델별로 test threshold를 최적화하지 않습니다.
+
+## 전체 흐름
+
+```text
+11 Sandstones filtered grayscale HR volume
+                 |
+                 v
+       core-level 8/1/2 split
+                 |
+                 v
+        z-only sparse sampling
+                 |
+        +--------+--------+
+        |                 |
+        v                 v
+  Linear interpolation  SAINT
+                          |
+                    +-----+------+
+                    |            |
+                    v            v
+                   L1       L1 + gradient
+                    |            |
+                    +-----+------+
+                          |
+                          v
+             missing-slice image metrics
+                          |
+                          v
+             frozen segmentation operator
+                          |
+                          v
+       morphology / connectivity / permeability
+```
+
+## SAINT upstream 사용 방침
+
+- 공식 코드: [cpeng93/SAINT](https://github.com/cpeng93/SAINT)
+- 공개 구현은 Python 3.7과 PyTorch 1.0 시대 코드입니다.
+- pretrained checkpoint는 x4/x6을 지원합니다.
+- AMI와 RFN은 두 단계로 학습합니다.
+- RFN 학습 문서는 upstream README에서도 완전히 정리되지 않았습니다.
+- upstream repository에 명시적인 라이선스 파일이 확인되지 않으므로, 코드를 복사하거나 수정본을 재배포하기 전에 사용 조건을 확인합니다.
+
+우선 upstream commit을 고정해 별도 환경에서 실행을 재현한 후, 동작을 바꾸지 않는 범위에서 현재 PyTorch로 포팅합니다. 재현 버전과 포팅 버전의 같은 입력에 대한 출력 차이를 기록합니다.
+
+## 팀 역할
+
+### Team A - Data and experiment operations
+
+- 11 Sandstones 다운로드·checksum·metadata 관리
+- core audit 및 split manifest 동결
+- normalization과 z sampling 구현·검증
+- 환경, GPU job, seed, checkpoint 및 log 관리
+- prediction volume과 metadata export
+
+### Team B - SAINT reproduction and modeling
+
+- upstream inference 재현
+- AMI/RFN tensor shape 및 FDM spacing 검증
+- grayscale dataloader와 L1 baseline 포팅
+- gradient loss ablation 구현
+- upstream/ported output parity test
+
+### Team C - Evaluation and physical validation
+
+- missing-slice MAE/PSNR/SSIM/gradient metric
+- segmentation protocol 동결
+- morphology, connectivity 및 permeability 평가
+- core 단위 통계와 figure 생성
+
+### Integration lead
+
+- interface와 milestone 승인
+- split/loss/metric 변경에 대한 decision log 확인
+- 재현 가능한 결과만 `main`에 병합
+
+| 역할 | 담당자 | 교차 검토자 |
+|---|---|---|
+| Team A | `TBD` | `TBD` |
+| Team B | `TBD` | `TBD` |
+| Team C | `TBD` | `TBD` |
+| Integration lead | `TBD` | - |
+
+## 재현성 규칙
+
+각 실험은 최소한 다음 metadata를 저장해야 합니다.
+
+```text
+experiment_id
 git_commit
-config_name
-seed
+upstream_saint_commit
+dataset_doi
+dataset_variant
+split_manifest_version
+split_manifest_hash
+normalization_id
+sampling_axis
 sampling_factor
+sampling_offset
+hr_voxel_spacing_um
+lr_voxel_spacing_um
+loss_name
+loss_weights
+seed
 checkpoint_epoch
-validation_missing_dice
-threshold
-voxel_spacing
-test_block_id
+validation_missing_mae
+test_core_id
 ```
 
-### Team C → 전체 팀
+- 학습 모델은 최소 3 seeds로 반복합니다.
+- 통계 단위는 slice가 아니라 held-out core 또는 사전 등록된 독립 block입니다.
+- Test metric을 이용해 설정을 변경하지 않습니다.
+- 원본 데이터, checkpoint 및 전체 prediction은 Git에 commit하지 않습니다.
 
-- Raw metric CSV
-- Summary table
-- Failure case 목록
-- Figure 생성 config
-- 결론을 지지하거나 반박하는 핵심 결과
-
-## 7. RACI 요약
-
-`R`: 실행 담당, `A`: 최종 책임, `C`: 검토, `I`: 공유
-
-| 작업 | Team A | Team B | Team C | Integration lead |
-|---|:---:|:---:|:---:|:---:|
-| 데이터 split·sampling | R | C | C | A |
-| 환경·GPU·실험 실행 | R | C | I | A |
-| 모델 및 loss 구현 | C | R | I | A |
-| Checkpoint 선택 | R | C | I | A |
-| 영상 metric | I | C | R | A |
-| Connectivity metric | I | C | R | A |
-| Permeability | C | I | R | A |
-| 통계·figure | I | C | R | A |
-| 포스터 문구 | C | C | R | A |
-| 최종 범위 결정 | C | C | C | A/R |
-
-## 8. 공통 학습 규칙
-
-- Optimizer 초기값: AdamW
-- Initial learning rate: `1e-4`
-- Weight decay: `1e-5`
-- Maximum epochs: `200`
-- Early-stopping patience: `20 epochs`
-- 개선 기준: validation missing-slice Dice가 이전 최고값보다 `0.001` 이상 증가
-- 최종 모델: 마지막 epoch가 아닌 best validation checkpoint
-- Test metric을 이용한 checkpoint 또는 threshold 선택 금지
-- `r=2`, `r=4` 모델을 우선 별도로 학습
-- Primary threshold는 모든 모델에 `0.5` 적용
-
-자세한 loss와 평가 정의는 [최종 연구 프로토콜](digital_rock_sparse_slice_reconstruction_final_protocol.md)을 따릅니다.
-
-## 9. Git 및 GitHub 작업 규칙
-
-### Branch
+## Branch와 변경 관리
 
 ```text
-main                 안정화 및 포스터 재현 가능 버전
-develop              통합 개발 브랜치
-infra/<topic>        Team A 작업
-model/<topic>        Team B 작업
-eval/<topic>         Team C 작업
-docs/<topic>         문서 및 포스터 작업
+main                 재현 가능한 동결 milestone
+develop              통합 개발
+infra/<topic>        데이터·환경·실험 운영
+model/<topic>        SAINT 재현·모델
+eval/<topic>         평가·물성
+docs/<topic>         문서·decision record
 ```
 
-예시:
+Split, normalization, primary metric, loss, voxel spacing 또는 test core를 변경하면 `docs/decisions/`에 이유와 영향을 기록합니다. 자세한 절차는 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
 
-```text
-infra/split-manifest
-model/independent-2d
-model/saint-rock-ami
-eval/connectivity-metrics
-docs/poster-method
-```
+## 현재 완료 조건
 
-### Commit
+### Milestone 0 - Upstream reproduction
 
-작고 검토 가능한 단위로 commit합니다.
+- [ ] upstream commit 고정
+- [ ] legacy 환경 또는 호환 환경 구성
+- [ ] 제공 checkpoint로 x4 inference 실행
+- [ ] 입력·출력 tensor와 normalization 기록
 
-```text
-feat(model): add missing-slice dice loss
-feat(eval): add z-percolating porosity metric
-fix(data): prevent overlap across spatial splits
-docs(protocol): clarify checkpoint selection
-```
+### Milestone 1 - Data baseline
 
-### Pull request
+- [ ] 11 core checksum 및 shape 확인
+- [ ] filtered grayscale intensity/artifact audit
+- [ ] 8/1/2 split manifest 동결
+- [ ] x4 z sampling 및 spacing unit test
+- [ ] 한 core에서 linear interpolation 결과 생성
 
-모든 주요 변경은 PR로 병합합니다.
+### Milestone 2 - Grayscale SAINT
 
-PR에 포함할 내용:
+- [ ] G1 x4 L1 학습
+- [ ] AMI와 RFN best validation checkpoint 확보
+- [ ] held-out core prediction 생성
+- [ ] missing-slice MAE/PSNR/SSIM 보고
 
-- 변경 목적
-- 입력·출력 또는 config 변경 여부
-- 실행한 검증
-- 영향받는 실험
-- 관련 issue
-- 생성된 대용량 파일의 저장 위치
+### Milestone 3 - Gradient ablation
 
-본인이 작성한 주요 코드는 가능하면 다른 팀원이 검토합니다.
+- [ ] G2 2D gradient loss 구현
+- [ ] lambda 후보를 validation에서만 선택
+- [ ] G1/G2를 동일 split·seed로 비교
+- [ ] 경계 개선과 노이즈 증폭 여부 분석
 
-## 10. Issue 운영
+### Milestone 4 - Structure and physics
 
-권장 label:
+- [ ] segmentation operator 동결
+- [ ] morphology/connectivity 평가
+- [ ] 대표 test block에서 permeability 계산
+- [ ] topology loss 필요성에 대한 go/no-go 결정
 
-```text
-team:infra
-team:model
-team:eval
-type:experiment
-type:bug
-type:documentation
-priority:high
-blocked
-needs-review
-```
+## 주장 범위
 
-Issue에는 다음 완료 조건을 명시합니다.
+이 프로젝트는 다음을 주장할 수 있습니다.
 
-```text
-Goal
-Input
-Expected output
-Acceptance criteria
-Owner
-Reviewer
-Dependencies
-```
+> Held-out grayscale Micro-CT core에서 SAINT의 sparse-slice reconstruction 성능과 gradient regularization의 효과를 영상·구조·물성 지표로 평가했다.
 
-## 11. 권장 디렉터리 구조
+다음 표현은 사용하지 않습니다.
 
-```text
-.
-├── README.md
-├── CONTRIBUTING.md
-├── configs/
-│   ├── data/
-│   ├── model/
-│   └── experiment/
-├── docs/
-│   ├── decisions/
-│   └── figures/
-├── digital_rock_sparse_slice_reconstruction_final_protocol.md
-├── scripts/
-│   ├── train/
-│   ├── infer/
-│   └── evaluate/
-├── src/
-│   ├── data/
-│   ├── models/
-│   ├── training/
-│   └── evaluation/
-├── tests/
-└── work/
-```
-
-코드가 추가되면서 필요한 폴더를 생성합니다. 빈 구조를 미리 대량으로 만들지는 않습니다.
-
-## 12. 데이터 및 대용량 산출물 정책
-
-다음 파일은 Git에 직접 올리지 않습니다.
-
-- 원본 Micro-CT volume
-- 학습/검증/test patch 전체
-- Model checkpoint
-- TensorBoard/W&B raw log
-- 전체 prediction volume
-- Permeability solver 대용량 output
-
-Git에는 다음만 포함합니다.
-
-- 데이터 접근 및 전처리 설명
-- Split manifest와 작은 metadata
-- Config
-- Source code
-- 작은 summary table
-- 포스터용 압축 figure
-
-대용량 파일 저장 위치는 실험 metadata에 명시합니다. 민감하거나 공개할 수 없는 데이터의 경로·샘플·자격증명을 commit하지 않습니다.
-
-## 13. 실행 단계 및 팀별 병렬 작업
-
-### Milestone 0. 협업 기반 확정
-
-- Team A: 환경 및 split 초안
-- Team B: SAINT 코드 실행 가능성 확인
-- Team C: metric 정의와 permeability workflow 확인
-- 전체: tensor shape, label convention, test block 규격 승인
-
-### Milestone 1. Baseline
-
-- Team A: `r=2`, `r=4` 데이터와 공통 config
-- Team B: A0, A1 구현
-- Team C: Dice, porosity, connectivity metric unit test
-
-완료 조건:
-
-- 동일 test patch에서 A0/A1 prediction 생성
-- Missing-slice metric과 full-volume metric 분리 확인
-
-### Milestone 2. SAINT-Rock
-
-- Team A: AMI/RFN 학습 job 운영
-- Team B: Binary AMI, RFN 및 hard-copy 구현
-- Team C: B 평가 pipeline 연결
-
-완료 조건:
-
-- `r=2`, `r=4` 각각 best validation checkpoint 확보
-- 동일 test block의 A0/A1/B 결과 생성
-
-### Milestone 3. 물성 평가
-
-- Team A: 최종 prediction과 metadata 동결
-- Team B: 실패 사례의 모델 측 원인 분석
-- Team C: connectivity, permeability, 통계, figure 생성
-
-완료 조건:
-
-- GT/A0/A1/B에 동일 solver 조건 적용
-- Headline metric table 완성
-- 결과 해석 초안 완성
-
-### Milestone 4. Topology 확장 여부 결정
-
-다음 조건에서 C를 우선 수행합니다.
-
-- B가 Dice는 개선하지만 connectivity/permeability를 개선하지 못함
-- Pore-throat disconnection이 대표 실패 원인으로 확인됨
-- 포스터 일정과 GPU 자원이 충분함
-
-그 외에는 topology-aware loss를 후속 연구로 제시합니다.
-
-## 14. 회의 운영
-
-### 주간 전체 회의
-
-각 팀은 다음 네 항목만 공유합니다.
-
-1. 지난주 완료 결과
-2. 재현 가능한 근거 또는 링크
-3. 현재 blocker
-4. 다음 주 acceptance criteria
-
-### 짧은 실험 동기화
-
-GPU 실험이 집중되는 기간에는 Team A와 Team B가 짧게 다음을 확인합니다.
-
-- 실행 중인 config
-- GPU와 예상 종료 시각
-- Validation 상태
-- 실패·재시작 여부
-
-### Decision log
-
-다음 변경은 `docs/decisions/`에 짧게 기록합니다.
-
-- Split 변경
-- Label convention 변경
-- Primary metric 변경
-- Loss 또는 threshold 변경
-- Test block 변경
-- Permeability solver 조건 변경
-
-## 15. 포스터 최소 산출물
-
-- 연구 질문 한 문장
-- Sparse input → 비교 모델 → 물성 평가 pipeline
-- GT/A0/A1/B 정성 비교
-- `r=2`, `r=4` headline metric table
-- Connected porosity error와 permeability error 관계
-- 결론, 한계 및 topology-aware 후속 계획
-
-## 16. 시작 전 합의할 항목
-
-- [ ] 팀별 담당자와 교차 검토자
-- [ ] Integration lead
-- [ ] 데이터 공개 가능 범위
-- [ ] Pore/solid label convention
-- [ ] Parent core 또는 spatial block split
-- [ ] Voxel spacing 및 target z resolution
-- [ ] GPU별 사용 가능 시간과 메모리
-- [ ] Permeability solver와 실행 담당자
-- [ ] 포스터 제출 일정
+- true pore structure를 완벽히 복원했다
+- PSNR 향상이 permeability 정확도를 보장한다
+- 최신 방법을 모두 재현하지 않고 SOTA를 달성했다
+- synthetic z subsampling 결과가 실제 저해상도 촬영을 완전히 대변한다

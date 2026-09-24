@@ -5,6 +5,7 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.ipynb_checkpoints/
 .coverage
 htmlcov/
 
@@ -39,8 +40,13 @@ data/patches/
 *.nii.gz
 *.mhd
 *.mha
+*.nrrd
+*.dcm
 *.tif
 *.tiff
+*.h5
+*.hdf5
+*.zarr/
 
 # Model artifacts
 checkpoints/
@@ -60,6 +66,8 @@ tensorboard/
 predictions/
 permeability_outputs/
 solver_outputs/
+artifacts/
+reports/generated/
 
 # Temporary working files
 tmp/
