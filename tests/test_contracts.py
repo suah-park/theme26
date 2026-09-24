@@ -16,6 +16,15 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(indices[:3], (0, 4, 8))
         self.assertEqual(indices[-1], 252)
 
+    def test_primary_metric_excludes_unbracketed_tail(self) -> None:
+        spec = SamplingSpec(factor=4, offset=0)
+        indices = spec.bracketed_missing_indices(256)
+
+        self.assertEqual(len(indices), 189)
+        self.assertEqual(indices[:3], (1, 2, 3))
+        self.assertEqual(indices[-3:], (249, 250, 251))
+        self.assertNotIn(253, indices)
+
     def test_crop_must_fit_volume(self) -> None:
         CropSpec((372, 372, 372)).validate_inside((1000, 1000, 1000))
         with self.assertRaises(ValueError):

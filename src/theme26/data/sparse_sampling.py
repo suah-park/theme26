@@ -12,12 +12,18 @@ from theme26.contracts import SamplingSpec
 
 @dataclass(frozen=True)
 class SparseSample:
-    """Compressed sparse input plus masks aligned to the original HR grid."""
+    """One NumPy ``[X,Y,Z]`` sample and masks aligned to its HR grid.
+
+    A DataLoader adds channel and batch dimensions, converting these masks to
+    Torch ``[B,1,X,Y,Z]``. ``primary_metric_mask`` excludes unbracketed boundary
+    positions from the headline interpolation comparison.
+    """
 
     sparse_volume: npt.NDArray[np.float32]
     observed_indices: tuple[int, ...]
     observed_mask: npt.NDArray[np.bool_]
     missing_mask: npt.NDArray[np.bool_]
+    primary_metric_mask: npt.NDArray[np.bool_]
     hr_shape_xyz: tuple[int, int, int]
     sampling: SamplingSpec
 
@@ -25,7 +31,7 @@ class SparseSample:
 def make_sparse_sample(
     dense: npt.NDArray[np.float32], *, sampling: SamplingSpec
 ) -> SparseSample:
-    """Compress z using ``sampling`` and return HR-grid masks and indices."""
+    """Compress z and return HR-grid observed, missing and primary metric masks."""
 
     raise NotImplementedError("data owner: implement x4 sparse-z sampling")
 

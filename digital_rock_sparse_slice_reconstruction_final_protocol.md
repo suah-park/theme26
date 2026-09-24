@@ -306,7 +306,7 @@ I_{fuse}=I_{avg}+F(I_{sag},I_{cor})
 \mathcal L_{L1}=\frac{1}{N}\sum_i|\hat I_i-I_i|
 \]
 
-AMI와 RFN의 stage별 loss 정의와 mask 범위는 upstream 코드 확인 후 문서화한다. 포팅 과정에서 loss 범위를 조용히 변경하지 않는다.
+AMI와 RFN의 stage별 loss 정의와 mask 범위는 upstream 코드 확인 후 문서화한다. E1/E2 학습 loss를 missing-only 또는 전체 SR output 중 어느 범위에 적용할지는 이 audit 전까지 동결하지 않으며, 포팅 과정에서 조용히 변경하지 않는다. 이는 primary 평가를 bracketed missing 위치에서 계산하는 규칙과 별개의 결정이다.
 
 ### E2. SAINT + gradient loss
 
@@ -371,8 +371,8 @@ soft-clDice는 3D soft-skeletonization을 이용해 pore network의 중심선 �
 
 Loss 적용 구간은 다음처럼 분리한다.
 
-- `L1`: missing grayscale voxel
-- `L_grad`: missing 위치 또는 그 경계에 닿는 2D grayscale finite difference
+- `L1`: E1 upstream audit에서 동결한 범위를 E2/E3에도 동일하게 유지
+- `L_grad`: E1 loss 범위와 정렬해 training/validation에서 동결할 2D grayscale finite difference 범위
 - `L_topo`: 관측 slice와 예측 slice를 합친 전체 3D soft pore volume
 - Permeability: 학습 loss가 아닌 frozen test prediction의 평가 지표
 
@@ -487,7 +487,7 @@ E3의 `t`, `tau`, topology weight와 soft-clDice 설정은 test 실행 전에 co
 
 ### 8.1 Missing-slice mask
 
-평가 mask는 HR grid에서 observed 위치를 제외한다.
+평가용 mask는 HR grid에서 observed 위치를 제외하되, primary 영상 비교에는 양쪽 관측 단면으로 bracket된 missing 위치만 포함한다.
 
 ```text
 r=4
@@ -495,7 +495,9 @@ observed: 1 0 0 0 1 0 0 0 1 ...
 missing : 0 1 1 1 0 1 1 1 0 ...
 ```
 
-모든 primary image metric은 missing mask에서 계산한다.
+`256` 깊이, x4, offset 0에서는 observed index가 `0,4,...,252`이므로 `z=253,254,255`에는 오른쪽 관측 단면이 없다. 이 세 위치는 primary image metric에서 제외하고 별도 boundary diagnostic으로만 기록한다. 따라서 primary mask에는 189개의 bracketed missing slice가 포함된다.
+
+E0 full-volume export가 필요한 경우 이 세 위치는 마지막 관측 단면으로 채울 수 있지만, 해당 replicate 값은 primary image metric에 포함하지 않는다. Learned model도 E0와의 공정한 primary 비교에서는 같은 bracketed mask를 사용한다.
 
 ### 8.2 Grayscale metrics
 
@@ -695,7 +697,7 @@ Code, data, run artifact는 다음처럼 분리한다.
 
 - Raw data와 checkpoint는 Git 외부의 persistent project storage에 보관한다.
 - GPU 학습은 Slurm에 GPU 1장을 요청해 시작한다.
-- 초기 resource request는 GPU 1, CPU 8 cores, RAM 64 GB를 기준으로 한다. E1/E2는 batch size 8부터, E3 full-volume fine-tuning은 batch size 1부터 확인한다.
+- 아래 자원값은 서버 계정을 받기 전의 임시 시작값이며, 실제 partition, GPU VRAM, CPU/RAM 제한을 확인한 뒤 config와 Slurm 파일에서 조정한다. 초기 probe는 GPU 1, CPU 8 cores, RAM 64 GB, E1/E2 batch size 8, E3 batch size 1로 시작할 수 있으나 과학적 고정값으로 해석하지 않는다.
 - CUDA OOM이 발생하면 `256^3` protocol을 바꾸지 않고 batch size를 줄인다.
 - 전체 학습 전에 one-batch overfit test로 loss 감소와 output shape를 확인한다.
 - 서버별 partition, GPU resource 표기와 실제 path는 local config에서만 변경한다.

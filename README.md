@@ -64,7 +64,7 @@ Primary 입력과 grayscale 정답은 `*_grayscale_filtered.raw`입니다. 제�
 고해상도 grayscale volume을 다음과 같이 둡니다.
 
 ```text
-I_HR: [H, W, D], float32, normalized to [0, 1]
+I_HR: [X, Y, Z], float32, normalized to [0, 1]
 ```
 
 저해상도 입력은 z축에서만 stride sampling하여 생성합니다.
@@ -127,7 +127,7 @@ L_E3   = L1 + 0.1 * L_grad + 0.1 * L_topo
 
 ## 평가
 
-모든 영상 지표는 원래 관측된 slice를 제외한 missing-slice 위치에서 계산합니다.
+Primary 영상 지표는 양쪽에 관측 단면이 존재하는 bracketed missing-slice 위치에서 계산합니다. `256` 깊이와 offset 0에서는 마지막 관측 단면 뒤의 `z=253,254,255`를 primary 영상 지표에서 제외합니다.
 
 ### Grayscale
 

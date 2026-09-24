@@ -22,7 +22,7 @@ Raw volumes, generated arrays, checkpoints, predictions and solver outputs remai
 
 ## Compute allocation
 
-Start with one GPU per training job:
+The values below are provisional placeholders only. After the server account is issued, update them to match the actual partition policy, GPU VRAM and CPU/RAM limits before submitting a full job.
 
 ```text
 GPU: 1
@@ -32,7 +32,7 @@ Initial batch size: 8
 Mixed precision: enabled
 ```
 
-GPU VRAM stores the model and active batch. CPU RAM prepares data; persistent storage holds source volumes and artifacts. E1/E2 starts from batch size 8, while E3 full-`256^3` topology fine-tuning starts from batch size 1 with AMI frozen. If CUDA reports out-of-memory, keep the `256^3` protocol and apply mixed precision, gradient checkpointing or accumulation before changing the scientific setup.
+`TODO(cluster)`: confirm the GPU model/VRAM, partition, maximum wall time, CPU allocation, RAM limit and GPU request syntax. The listed batch sizes are first-probe values, not frozen experiment settings. GPU VRAM stores the model and active batch. CPU RAM prepares data; persistent storage holds source volumes and artifacts. If CUDA reports out-of-memory, keep the `256^3` protocol and apply mixed precision, a smaller batch, gradient checkpointing or accumulation before changing the scientific setup.
 
 ## Slurm training template
 
@@ -52,11 +52,13 @@ mkdir -p logs
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x-%j.out
 
+# TODO(cluster): replace partition, GPU syntax, CPU/RAM and wall time after allocation.
+
 set -euo pipefail
 
 cd /project/<group>/theme26
 
-/project/<group>/envs/theme26/bin/python -m src.train \
+/project/<group>/envs/theme26/bin/python scripts/train.py \
   --config configs/e1_saint_l1.yaml
 ```
 

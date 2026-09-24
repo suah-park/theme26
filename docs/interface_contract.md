@@ -39,7 +39,8 @@ Dense crop:                    [256, 256, 256]
 Dense batch:             [B, 1, 256, 256, 256]
 Compressed x4 sparse:           [256, 256, 64]
 Sparse batch:              [B, 1, 256, 256, 64]
-Observed/missing mask:     [B, 1, 256, 256, 256]
+Preprocessing masks:             [256, 256, 256]
+Training batch masks:      [B, 1, 256, 256, 256]
 Binary target:             [B, 1, 256, 256, 256]
 
 Sagittal AMI input:        [B, 3, Y, Z_lr]
@@ -51,6 +52,8 @@ Final dense volume:        [B, 1, X, Y, Z_hr]
 ```
 
 `L`은 sagittal이면 `Y`, coronal이면 `X`이다. AMI의 3채널은 RGB가 아니라 현재 marginal slice와 양옆의 인접 marginal slice이다.
+
+`SparseSample`과 evaluation 함수는 NumPy 단일 volume이므로 mask가 `[X,Y,Z]`이다. DataLoader가 batch를 만들 때 channel과 batch 차원을 추가하여 Torch `[B,1,X,Y,Z]`로 변환한다.
 
 ### 2.3 Dtype와 값 범위
 
@@ -85,18 +88,18 @@ observed index = offset + factor*k
 validation/test offset = manifest에서 고정
 ```
 
-`SparseSample`은 compressed sparse volume, HR-grid observed/missing mask와 observed index를 함께 반환한다. mask를 함수마다 다시 만들지 않는다.
+`SparseSample`은 compressed sparse volume, HR-grid observed/missing mask, primary metric mask와 observed index를 함께 반환한다. `primary_metric_mask`는 양쪽 관측 단면 사이에 있는 bracketed missing 위치만 `True`이며, mask를 함수마다 다시 만들지 않는다.
 
 Learned model은 HR z-grid 전체를 예측한다. 구조·물성 평가용 full volume은 예측에 관측 slice를 다시 삽입해 만든다.
 
 ```python
-full = prediction.clone()
+full = prediction.copy()
 full[..., observed_indices] = sparse_volume
 ```
 
-Primary image metric은 observed slice가 아니라 `missing_mask`에서만 계산한다. 전체-volume metric을 함께 저장할 수 있지만 headline 결과로 사용하지 않는다.
+Primary image metric은 `missing_mask` 전체가 아니라 `primary_metric_mask`에서 계산한다. 전체-volume 또는 모든 missing 위치의 metric을 boundary diagnostic으로 저장할 수 있지만 headline 결과로 사용하지 않는다.
 
-E0의 마지막 관측 slice 뒤에 남는 위치는 `boundary_mode="replicate"`로 마지막 관측 slice를 복사한다. 모든 192개 missing 위치를 평가하되, 상대 위치별 결과에서 boundary 위치를 별도로 식별할 수 있어야 한다.
+E0의 마지막 관측 slice 뒤에 남는 위치는 full-volume shape를 완성하기 위해 `boundary_mode="replicate"`로 채울 수 있다. 그러나 양쪽 관측 단면이 없는 위치는 primary image metric에서 제외한다. `256` 깊이, factor 4, offset 0의 primary mask는 189개 bracketed missing slice를 포함한다.
 
 ## 4. 공개 API
 
@@ -119,7 +122,7 @@ extract_aligned_crop(grayscale, binary, *, crop) -> tuple[np.ndarray, np.ndarray
 make_sparse_sample(dense, *, sampling) -> SparseSample
 # compressed [X,Y,Z_lr] + HR-grid masks/indices
 
-linear_interpolate_z(sample, *, boundary_mode="replicate") -> np.ndarray
+linear_interpolate_z(sample) -> np.ndarray
 # [X,Y,Z_hr], float32
 
 compose_full_volume(prediction, sample) -> np.ndarray
@@ -164,11 +167,11 @@ soft_dice_loss(probability, target, *, eps=1e-6) -> torch.Tensor
 
 soft_cldice_loss_3d(probability, target, *, iterations, eps=1e-6) -> torch.Tensor
 
-topology_loss(probability, target, *, dice_weight=0.5,
-              cldice_weight=0.5, iterations=10) -> torch.Tensor
+topology_loss(probability, target, *, iterations,
+              dice_weight=0.5, cldice_weight=0.5) -> torch.Tensor
 ```
 
-E1/E2의 primary L1 및 gradient는 missing prediction에 적용한다. E3 topology는 observed slice를 입력값으로 교체한 assembled 3D soft pore volume에 적용하며, observed slice를 통해 gradient가 흐르면 안 된다.
+E1/E2 학습 loss의 mask 범위는 upstream stage별 동작을 audit한 뒤 config와 decision record에 동결한다. 평가가 bracketed missing-only라는 이유만으로 학습 loss까지 missing-only로 가정하지 않는다. E3 topology는 observed slice를 입력값으로 교체한 assembled 3D soft pore volume에 적용하며, observed slice를 통해 gradient가 흐르면 안 된다.
 
 ### 4.4 Evaluation
 
@@ -207,6 +210,8 @@ compute_physics_metrics(predicted_pore, target_pore, *, spacing_um_xyz,
 - training-only normalization lower/upper와 `normalization_id`
 - validation/test crop 좌표와 sampling offset
 - soft threshold, temperature와 topology protocol version
+- E1/E2 stage별 L1/gradient loss region
+- soft-clDice skeletonization iterations
 - SSIM implementation/window
 - permeability solver와 boundary condition
 

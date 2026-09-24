@@ -37,11 +37,11 @@ def topology_loss(
     probability: torch.Tensor,
     target: torch.Tensor,
     *,
+    iterations: int,
     dice_weight: float = 0.5,
     cldice_weight: float = 0.5,
-    iterations: int = 10,
     eps: float = 1e-6,
 ) -> torch.Tensor:
-    """Combine soft Dice and 3D soft-clDice into one scalar loss."""
+    """Combine soft Dice and 3D soft-clDice using config-frozen iterations."""
 
     raise NotImplementedError("loss owner: implement weighted topology loss and weight validation")

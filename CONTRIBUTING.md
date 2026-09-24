@@ -19,12 +19,13 @@
 ## 작업 절차
 
 1. Issue에 goal, input, expected output, acceptance criteria와 dependency를 작성합니다.
-2. `develop`에서 변경 주제에 맞는 branch를 생성합니다.
+2. 최신 `main`에서 변경 주제에 맞는 feature branch를 생성합니다.
 3. 관련 protocol section과 기존 decision record를 확인합니다.
 4. 작은 단위로 구현하고 unit/smoke test를 추가합니다.
 5. PR에 재현 명령, 검증 결과, 실험 영향 및 artifact 위치를 기록합니다.
-6. 코드와 실험 조건 검토 후 `develop`에 병합합니다.
-7. Protocol acceptance gate를 통과한 변경만 `main`에 병합합니다.
+6. 코드와 실험 조건 검토 및 Protocol acceptance gate 확인 후 PR을 `main`에 병합합니다.
+
+현재 팀 규모에서는 별도 `develop` branch를 두지 않습니다. `main` 직접 push 대신 짧은 feature branch와 PR을 사용합니다.
 
 ## Branch 이름
 

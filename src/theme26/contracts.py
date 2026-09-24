@@ -87,3 +87,13 @@ class SamplingSpec:
         if z_size <= self.offset:
             raise ValueError("z_size must be greater than offset")
         return tuple(range(self.offset, z_size, self.factor))
+
+    def bracketed_missing_indices(self, z_size: int) -> tuple[int, ...]:
+        """Return missing indices that have observed slices on both sides."""
+
+        observed = self.observed_indices(z_size)
+        return tuple(
+            index
+            for left, right in zip(observed, observed[1:])
+            for index in range(left + 1, right)
+        )
