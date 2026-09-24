@@ -8,7 +8,7 @@ SAINT(Spatially Aware Interpolation NeTwork)을 grayscale Micro-CT digital rock�
 
 현재 연구는 원본 SAINT 구조를 유지한 채 L1 기준선, gradient-loss ablation, 그리고 3D soft-clDice topology fine-tuning을 단계적으로 비교합니다. Permeability는 loss가 아니라 동결된 prediction의 최종 평가 지표로 사용합니다.
 
-상세한 정의와 실험 규칙은 [연구 프로토콜](digital_rock_sparse_slice_reconstruction_final_protocol.md)을 따릅니다.
+상세한 정의와 실험 규칙은 [연구 프로토콜](digital_rock_sparse_slice_reconstruction_final_protocol.md)을 따릅니다. 팀별 모듈의 입력·출력 shape, dtype, axis와 공개 함수 signature는 [Interface Contract](docs/interface_contract.md)에 고정합니다.
 
 ## 고정된 연구 범위
 
