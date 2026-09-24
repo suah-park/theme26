@@ -14,6 +14,7 @@ This document defines the portable server layout. Replace `<group>` and the two 
   E0_interpolation/
   E1_saint_l1/
   E2_saint_l1_grad/
+  E3_saint_l1_grad_topology/
 /project/<group>/envs/theme26/             # server Python environment
 ```
 
@@ -31,7 +32,7 @@ Initial batch size: 8
 Mixed precision: enabled
 ```
 
-GPU VRAM stores the model and active batch. CPU RAM prepares data; persistent storage holds source volumes and artifacts. If CUDA reports out-of-memory, reduce batch size without changing the `256^3` crop protocol.
+GPU VRAM stores the model and active batch. CPU RAM prepares data; persistent storage holds source volumes and artifacts. E1/E2 starts from batch size 8, while E3 full-`256^3` topology fine-tuning starts from batch size 1 with AMI frozen. If CUDA reports out-of-memory, keep the `256^3` protocol and apply mixed precision, gradient checkpointing or accumulation before changing the scientific setup.
 
 ## Slurm training template
 
@@ -92,6 +93,7 @@ data audit and manifests
   -> E0 interpolation
   -> E1 SAINT + L1
   -> E2 SAINT + L1 + 0.1 gradient
+  -> E3 E2-checkpoint + 0.1 topology fine-tuning
   -> frozen inference
   -> grayscale metrics
   -> frozen segmentation
@@ -99,3 +101,5 @@ data audit and manifests
 ```
 
 Do not submit a full training job until the one-batch overfit test shows a decreasing loss and the output shape and missing-slice mask have been verified.
+
+Before an E3 headline job, also verify grayscale/binary alignment and pore polarity, freeze the training/validation-derived soft threshold and temperature, and run a 3D phantom gradient-flow test. Test topology or permeability must not be used to tune E3.

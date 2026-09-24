@@ -1,7 +1,7 @@
 # 0001 - Grayscale SAINT baseline and evaluation-first topology policy
 
 - Date: 2026-09-24
-- Status: Accepted
+- Status: Accepted; topology-scope decision superseded by 0003
 
 ## Context
 
@@ -18,7 +18,7 @@ The team wants to apply SAINT to digital rock while preserving the original meth
 5. Reproduce the original SAINT architecture and L1 objective before adding new loss terms.
 6. Use 2D finite-difference gradient loss as the first isolated ablation after the L1 baseline.
 7. Treat provided binary volumes as structure-evaluation references, not training targets.
-8. Keep 3D topology-aware loss outside the current experiment and evaluate topology after inference.
+8. Initially keep 3D topology-aware loss outside the baseline experiment and evaluate topology after inference. This scope point is superseded by decision 0003 after E1/E2.
 
 ## Alternatives considered
 
@@ -44,7 +44,7 @@ Rejected for the current experiment. x4 is the only primary scale because it ali
 - A segmentation protocol must be frozen before topology or permeability comparisons.
 - Earlier binary-specific BCE/Dice and fixed threshold 0.5 requirements are removed from the main protocol.
 - The first implementation gate is upstream reproduction, not a new architecture.
-- Topology-aware modeling remains outside the current experiment and requires a separate decision.
+- Topology-aware modeling requires a separate decision. Decision 0003 now authorizes it as E3 after E1/E2, without changing the grayscale baseline.
 
 ## Required follow-up
 

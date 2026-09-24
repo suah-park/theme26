@@ -4,9 +4,9 @@ SAINT(Spatially Aware Interpolation NeTwork)을 grayscale Micro-CT digital rock�
 
 핵심 질문은 다음과 같습니다.
 
-> Grayscale SAINT가 x4 sparse-slice sandstone volume을 단순 보간보다 잘 복원하며, gradient loss가 pore boundary, topology 및 permeability 보존을 개선하는가?
+> Grayscale SAINT가 x4 sparse-slice sandstone volume을 단순 보간보다 잘 복원하며, gradient loss와 3D connectivity-aware topology fine-tuning이 pore boundary, topology 및 permeability 보존을 개선하는가?
 
-현재 연구는 원본 SAINT 구조를 유지한 채 L1 기준선과 gradient-loss ablation을 비교합니다. 3D topology loss는 사용하지 않으며, topology와 물성은 추론 후 평가 지표로만 사용합니다.
+현재 연구는 원본 SAINT 구조를 유지한 채 L1 기준선, gradient-loss ablation, 그리고 3D soft-clDice topology fine-tuning을 단계적으로 비교합니다. Permeability는 loss가 아니라 동결된 prediction의 최종 평가 지표로 사용합니다.
 
 상세한 정의와 실험 규칙은 [연구 프로토콜](digital_rock_sparse_slice_reconstruction_final_protocol.md)을 따릅니다.
 
@@ -22,7 +22,8 @@ SAINT(Spatially Aware Interpolation NeTwork)을 grayscale Micro-CT digital rock�
 | SAINT patch size | `10` |
 | Normalization | training data로 동결한 `[0,1]` mapping |
 | Learned-model seeds | `1, 2, 3` |
-| Checkpoint metric | validation missing-slice MAE |
+| E1/E2 checkpoint metric | validation missing-slice MAE |
+| E3 checkpoint metric | validation E3 total loss |
 
 `256`은 3D 암석 ROI의 크기이고 `10`은 SAINT가 초해상화 축에서 사용하는 내부 2D strip 길이입니다. 두 설정은 대체 관계가 아닙니다.
 
@@ -30,9 +31,9 @@ SAINT(Spatially Aware Interpolation NeTwork)을 grayscale Micro-CT digital rock�
 
 - x2 또는 x6 scale
 - raw-grayscale robustness
-- 3D topology-aware loss
+- Persistent-homology loss 또는 permeability loss
 - GAN, diffusion 또는 architecture search
-- gradient-loss weight search
+- loss-weight sweep
 - test set을 이용한 threshold 또는 hyperparameter 선택
 
 ## 데이터
@@ -47,7 +48,7 @@ SAINT(Spatially Aware Interpolation NeTwork)을 grayscale Micro-CT digital rock�
 - voxel spacing: `2.25 um` isotropic
 - 제공 형식: raw grayscale, filtered grayscale, binary segmentation
 
-Primary 입력과 정답은 `*_grayscale_filtered.raw`입니다. 제공된 binary volume은 모델 입력이나 학습 정답이 아니라 구조·물성 평가 reference로만 사용합니다.
+Primary 입력과 grayscale 정답은 `*_grayscale_filtered.raw`입니다. 제공된 binary volume은 모델 입력이나 grayscale reconstruction 정답이 아닙니다. E3에서는 training/validation core의 정렬된 binary volume만 auxiliary topology target으로 사용하고, 최종 평가에서는 모든 모델에 동일한 구조·물성 reference로 사용합니다.
 
 ### Split과 crop
 
@@ -81,8 +82,11 @@ I_LR = I_HR[:, :, offset::4]
 | E0 | Linear z interpolation | 없음 | deterministic |
 | E1 | Original SAINT on grayscale rock | L1 | 1, 2, 3 |
 | E2 | SAINT gradient ablation | L1 + `0.1 * gradient` | 1, 2, 3 |
+| E3 | SAINT topology-aware fine-tuning | L1 + `0.1 * gradient` + `0.1 * topology` | 1, 2, 3 |
 
 E1과 E2는 architecture, data split, crop, optimizer, training budget 및 checkpoint rule을 동일하게 유지합니다. E2에서는 loss만 변경합니다.
+
+E3는 각 seed의 E2 best checkpoint에서 시작합니다. 먼저 AMI를 고정하고 RFN을 fine-tuning하며, sagittal/coronal 결과를 조립한 최종 `256^3` grayscale volume에 3D topology loss를 적용합니다. soft-clDice는 pore network의 연결성을 유도하는 surrogate이며 정확한 위상 보존을 보장하는 loss로 해석하지 않습니다.
 
 SAINT의 두 단계 구조를 유지합니다.
 
@@ -111,6 +115,16 @@ L_E2   = L1 + 0.1 * L_grad
 
 Intensity는 `[0,1]`로 정규화하고 `lambda_grad=0.1`을 고정합니다. 현재 실험에서는 loss-weight sweep을 수행하지 않습니다.
 
+E3에서는 조립된 3D grayscale volume을 미분 가능한 soft pore probability로 바꿉니다. 아래 식은 낮은 intensity가 pore인 경우이며, 데이터 audit에서 polarity를 반드시 확인합니다.
+
+```text
+P_pred = sigmoid((t - I_final) / tau)
+L_topo = 0.5 * L_softDice(P_pred, B_gt) + 0.5 * L_soft-clDice(P_pred, B_gt)
+L_E3   = L1 + 0.1 * L_grad + 0.1 * L_topo
+```
+
+`t`와 `tau`는 training/validation 자료에서 정하고 headline E3 전에 동결합니다. `I_final`은 관측 slice는 입력값, 누락 slice는 prediction으로 구성합니다. 따라서 topology loss는 전체 3D volume을 보지만 gradient는 누락 slice prediction으로만 흐릅니다. L1은 누락 grayscale voxel, gradient loss는 누락 위치와 맞닿은 2D intensity 차이, topology loss는 3D soft pore volume에 적용합니다.
+
 ## 평가
 
 모든 영상 지표는 원래 관측된 slice를 제외한 missing-slice 위치에서 계산합니다.
@@ -125,7 +139,7 @@ Intensity는 `[0,1]`로 정규화하고 `lambda_grad=0.1`을 고정합니다. �
 
 ### Structure and physics
 
-E0/E1/E2의 동결된 prediction에 동일한 segmentation operator를 적용합니다.
+E0/E1/E2/E3의 동결된 prediction에 동일한 hard segmentation operator를 적용합니다. E3 학습의 soft conversion과 최종 평가 segmentation은 역할을 분리하며, test 결과를 보고 어느 쪽도 조정하지 않습니다.
 
 - Dice/IoU against provided binary reference
 - Absolute porosity error
@@ -161,6 +175,8 @@ GPU 학습은 Slurm에서 GPU 1장을 요청해 실행합니다. 서버마다 �
 
 Upstream commit을 고정해 별도 환경에서 먼저 재현한 뒤 현재 PyTorch로 포팅합니다. Upstream repository에 명시적인 라이선스 파일이 확인되지 않으므로, 전체 소스를 이 repository에 복사하거나 수정본을 공개하기 전에 사용 조건을 확인합니다.
 
+E3 topology surrogate는 [clDice 논문](https://openaccess.thecvf.com/content/CVPR2021/html/Shit_clDice_-_A_Novel_Topology-Preserving_Loss_Function_for_Tubular_Structure_CVPR_2021_paper.html)과 [공식 구현](https://github.com/jocpae/clDice)을 기준으로 3D soft-skeletonization을 구현합니다.
+
 ## 재현성 규칙
 
 각 실험은 최소한 다음 metadata를 저장해야 합니다.
@@ -188,10 +204,14 @@ seed
 checkpoint_epoch
 validation_missing_mae
 segmentation_protocol_version
+topology_protocol_version
+soft_threshold
+soft_temperature
+soft_skeleton_iterations
 ```
 
 - 통계 단위는 slice가 아니라 held-out core 또는 사전 등록된 `256^3` block입니다.
-- E1/E2는 seeds 1, 2, 3으로 반복합니다.
+- E1/E2/E3는 seeds 1, 2, 3으로 반복합니다.
 - Test metric으로 설정을 변경하지 않습니다.
 - Split, normalization, crop, loss, spacing, segmentation 또는 solver를 변경하면 decision record를 추가합니다.
 
@@ -210,6 +230,7 @@ segmentation_protocol_version
 - [ ] E0 linear interpolation
 - [ ] E1 SAINT + L1, seeds 1/2/3
 - [ ] E2 SAINT + L1 + 0.1 gradient, seeds 1/2/3
+- [ ] E3 E2-checkpoint + 0.1 topology fine-tuning, seeds 1/2/3
 - [ ] 동일한 missing-slice mask로 grayscale metric 계산
 
 ### Structure and physics
@@ -224,6 +245,10 @@ segmentation_protocol_version
 권장 표현:
 
 > Held-out grayscale sandstone Micro-CT blocks에서 x4 sparse-z SAINT reconstruction과 gradient regularization의 효과를 영상·구조·물성 지표로 평가했다.
+
+E3 결과까지 포함할 때는 다음처럼 표현합니다.
+
+> Held-out grayscale sandstone Micro-CT blocks에서 x4 sparse-z SAINT reconstruction을 수행하고, gradient regularization과 3D connectivity-aware topology fine-tuning의 효과를 영상·구조·물성 지표로 평가했다.
 
 다음 표현은 사용하지 않습니다.
 

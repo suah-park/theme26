@@ -10,8 +10,9 @@
 - 모든 primary spatial crop은 `256 x 256 x 256`입니다.
 - Gradient loss는 E1 baseline 완료 후 E2 ablation으로 추가합니다.
 - Gradient weight는 normalized `[0,1]` intensity에서 `0.1`로 고정합니다.
-- Binary segmentation은 evaluation reference이며 model target이 아닙니다.
-- 3D topology loss는 현재 기본 구현 범위가 아닙니다.
+- Binary segmentation은 grayscale reconstruction target이 아닙니다. E3의 auxiliary topology target과 공통 evaluation reference로만 사용합니다.
+- E3는 E2 best checkpoint에서 시작하는 3D soft Dice + soft-clDice RFN fine-tuning입니다.
+- Permeability와 hard connected-component metric은 loss가 아니라 최종 평가에만 사용합니다.
 - Test 결과로 checkpoint, loss weight, normalization, segmentation threshold 또는 hyperparameter를 선택하지 않습니다.
 - 원본 volume, patch, checkpoint, prediction 및 solver output은 Git에 commit하지 않습니다.
 
@@ -42,6 +43,7 @@ infra/core-split-manifest
 model/upstream-saint-reproduction
 model/grayscale-l1
 model/gradient-loss
+model/3d-soft-cldice
 eval/missing-slice-metrics
 eval/frozen-segmentation
 docs/gradient-ablation-decision
@@ -53,6 +55,7 @@ docs/gradient-ablation-decision
 feat(data): add x4 z-sampling with physical spacing
 feat(model): port grayscale SAINT L1 baseline
 feat(loss): add finite-difference gradient loss
+feat(loss): add 3d soft-cldice fine-tuning
 feat(eval): add missing-slice PSNR and SSIM
 fix(data): prevent parent-core split leakage
 docs(protocol): record segmentation freeze decision
@@ -69,6 +72,8 @@ docs(protocol): record segmentation freeze decision
 - [ ] Upstream SAINT 동작에서 벗어난 부분을 명시했다.
 - [ ] 대용량 파일, local path 또는 credential이 포함되지 않았다.
 - [ ] 재현에 필요한 config, seed 및 commit을 기록했다.
+- [ ] E3이면 soft threshold, temperature, pore polarity와 topology protocol version을 기록했다.
+- [ ] E3 topology gradient가 observed slice가 아닌 missing prediction으로 흐르는지 확인했다.
 - [ ] 결과 PR이면 raw metric과 prediction metadata 위치를 기록했다.
 
 ## 변경 시 decision record가 필요한 항목
@@ -82,10 +87,11 @@ docs(protocol): record segmentation freeze decision
 - Primary scale 또는 sparse sampling rule
 - Primary loss 또는 checkpoint metric
 - Gradient definition 또는 weight search space
+- Soft threshold, temperature, topology definition 또는 weight
 - Segmentation operator
 - Test ROI/block
 - Permeability solver 또는 boundary condition
-- Topology-loss 범위 변경 제안
+- Topology-loss 범위 변경
 
 Decision record에는 context, decision, alternatives, consequences를 포함합니다.
 
@@ -117,6 +123,10 @@ validation_missing_mae
 prediction_dtype
 prediction_shape
 segmentation_protocol_version
+topology_protocol_version
+soft_threshold
+soft_temperature
+soft_skeleton_iterations
 ```
 
 ## 외부 코드와 데이터
@@ -140,6 +150,8 @@ segmentation_protocol_version
 - G1이 원본 SAINT 동작을 불필요하게 바꾸지 않는가?
 - AMI/RFN stage와 FDM input이 문서화되었는가?
 - G2가 architecture가 아닌 loss만 바꾸는가?
+- E3가 동일 seed의 E2 checkpoint에서 시작하고 AMI freeze 원칙을 지키는가?
+- E3의 3D full-volume composition과 gradient-flow mask가 검증되었는가?
 
 ### Evaluation review
 

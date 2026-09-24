@@ -7,7 +7,7 @@
 - Spatial crop: 256 x 256 x 256
 - Primary model: original SAINT architecture, L1 loss
 - First ablation: 2D gradient loss, lambda 0.1
-- 3D topology-aware loss: 현재 실험 범위에서 제외
+- Second ablation: 3D soft Dice + soft-clDice fine-tuning, lambda 0.1
 
 ---
 
@@ -21,9 +21,9 @@
 4. x4 z-subsampling과 원본 SAINT + L1을 첫 번째 핵심 실험으로 한다.
 5. 모든 primary experiment에서 `256 x 256 x 256` spatial crop과 x4를 고정한다.
 6. Gradient loss는 `lambda_grad=0.1`로 고정한 첫 ablation이다.
-7. Binary segmentation은 학습 target이 아니라 구조·물성 평가 reference이다.
-8. 3D topology-aware loss는 현재 실험 범위에서 제외한다.
-9. Topology와 permeability는 frozen prediction의 사후 평가에만 사용한다.
+7. Binary segmentation은 grayscale reconstruction target이 아니며, E3의 auxiliary topology target과 구조·물성 평가 reference로만 사용한다.
+8. E3는 E2 checkpoint에서 시작하여 3D soft Dice + soft-clDice로 RFN을 fine-tuning한다.
+9. Permeability는 loss로 사용하지 않고 frozen prediction의 사후 평가에만 사용한다.
 
 핵심 연구 질문은 다음과 같다.
 
@@ -32,6 +32,10 @@
 첫 번째 확장 질문은 다음과 같다.
 
 > L1에 gradient loss를 추가하면 pore-grain 경계와 slice-to-slice 연속성을 개선하는가?
+
+두 번째 확장 질문은 다음과 같다.
+
+> 조립된 3D volume에 connectivity-aware topology loss를 추가하면 grayscale 품질을 크게 훼손하지 않으면서 pore connectivity와 물성 보존을 개선하는가?
 
 ---
 
@@ -47,6 +51,7 @@
 - SAINT AMI/RFN의 grayscale L1 학습
 - Missing-slice MAE, PSNR, SSIM 평가
 - Gradient-loss ablation
+- 3D soft-clDice topology fine-tuning
 - 동결된 segmentation protocol을 이용한 구조 평가
 - z-direction permeability 평가
 
@@ -55,7 +60,7 @@
 - x2 및 x6 scale
 - raw grayscale robustness
 - Independent 2D 또는 3D CNN 비교군
-- 3D topology-aware fine-tuning
+- Persistent-homology loss 및 permeability loss
 - Gradient-loss weight search
 - GAN 또는 architecture search
 
@@ -89,7 +94,7 @@ Primary experiment에서는 filtered grayscale 파일을 사용한다.
 <sample>_2d25um_grayscale_filtered.raw
 ```
 
-Binary volume은 grayscale prediction을 평가하기 위한 reference이다. 학습 입력, 모델 출력 또는 loss target으로 사용하지 않는다.
+Binary volume은 모델 입력이나 grayscale reconstruction target으로 사용하지 않는다. E3에서는 training/validation core의 aligned binary volume을 auxiliary topology target으로 사용하고, 최종 평가에서는 모든 model의 공통 reference로 사용한다. Test binary는 학습이나 설정 선택에 사용하지 않는다.
 
 ### 2.2 데이터 provenance
 
@@ -329,9 +334,49 @@ D_yI_{i,j}=I_{i,j+1}-I_{i,j}
 
 Normalized `[0,1]` intensity에서 `lambda_grad=0.10`으로 고정한다. 현재 실험에서 lambda search를 수행하지 않는다.
 
-### Future work: 3D topology-aware SAINT
+### E3. SAINT + 3D connectivity-aware topology fine-tuning
 
-3D topology-aware loss는 현재 primary experiment에서 제외한다. 연결성 실패가 관찰되더라도 이번 비교에서는 학습 loss를 추가하지 않고 제한점으로 보고한다.
+E3는 각 seed의 E2 best checkpoint에서 시작한다. 먼저 AMI를 고정하고 RFN을 fine-tuning하여 E2와 E3의 차이를 3D topology constraint로 제한한다. GPU memory가 허용하면 `256^3` 전체 조립 volume을 batch size 1로 사용하고, OOM 시 crop 크기를 바꾸지 않고 gradient checkpointing 또는 accumulation을 사용한다.
+
+관측 slice와 예측된 누락 slice를 다음과 같이 조립한다.
+
+\[
+I_{final}=M_{miss}\odot\hat I+(1-M_{miss})\odot I_{observed}
+\]
+
+낮은 intensity가 pore인 경우 soft pore probability를 다음처럼 정의한다. 실제 polarity는 data audit에서 확인하며 pore가 밝으면 식의 부호를 반대로 한다.
+
+\[
+P_{pred}=\sigma\left(\frac{t-I_{final}}{\tau}\right)
+\]
+
+여기서 threshold \(t\)는 training core에서 제공 binary와의 agreement를 기준으로 정하고 validation에서 확인한 뒤 동결한다. Temperature \(\tau\)는 transition band가 사라지거나 지나치게 넓어지지 않도록 training/validation에서 정하고 headline run 전에 동결한다. Test data로 두 값을 조정하지 않는다.
+
+3D topology surrogate는 soft Dice와 soft-clDice를 결합한다.
+
+\[
+\mathcal L_{topo}
+=0.5\mathcal L_{softDice}(P_{pred},B_{gt})
++0.5\mathcal L_{soft-clDice}(P_{pred},B_{gt})
+\]
+
+\[
+\mathcal L_{E3}
+=\mathcal L_{L1}
++0.10\mathcal L_{grad}
++0.10\mathcal L_{topo}
+\]
+
+soft-clDice는 3D soft-skeletonization을 이용해 pore network의 중심선 연결성을 유도하는 미분 가능한 surrogate이다. Sandstone pore space의 모든 topological property를 보장하지 않으므로 Euler characteristic, component count, percolation과 permeability는 별도의 hard-segmentation 평가로 검증한다.
+
+Loss 적용 구간은 다음처럼 분리한다.
+
+- `L1`: missing grayscale voxel
+- `L_grad`: missing 위치 또는 그 경계에 닿는 2D grayscale finite difference
+- `L_topo`: 관측 slice와 예측 slice를 합친 전체 3D soft pore volume
+- Permeability: 학습 loss가 아닌 frozen test prediction의 평가 지표
+
+관측 slice는 `I_final`에서 상수이므로 topology loss의 gradient는 누락 slice prediction을 통해서만 역전파된다. Hard threshold와 connected-component 연산은 학습 경로에 넣지 않는다.
 
 ---
 
@@ -399,13 +444,29 @@ G1은 architecture뿐 아니라 loss와 가능한 training behavior도 원 구�
 
 Average-only fusion은 RFN 학습이 막힐 경우 diagnostic baseline으로 기록하며 RFN 결과로 표기하지 않는다.
 
+#### Stage 3: E3 topology fine-tuning
+
+1. 동일 seed의 E2 best checkpoint를 불러온다.
+2. AMI를 고정하고 sagittal/coronal output을 최종 `256^3` volume으로 조립한다.
+3. Training core의 aligned binary target으로 `L_E3`를 계산하여 RFN을 fine-tuning한다.
+4. Validation E3 total loss로 checkpoint를 선택한다.
+5. Test binary, topology metric 또는 permeability는 checkpoint 선택에 사용하지 않는다.
+
 ### 7.3 Checkpoint selection
 
-Primary selection metric:
+E1/E2 selection metric:
 
 \[
 \mathrm{Validation\ Missing\text{-}slice\ MAE}
 \]
+
+E3 selection metric:
+
+\[
+\mathrm{Validation}\ \mathcal L_{E3}
+\]
+
+E3의 `t`, `tau`, topology weight와 soft-clDice 설정은 test 실행 전에 config와 decision record에 동결한다.
 
 금지:
 
@@ -532,6 +593,7 @@ GT는 percolating하지만 prediction이 non-percolating인 경우 임의의 작
 | E0 | Filtered grayscale | 256^3 | x4 | linear | deterministic |
 | E1 | Filtered grayscale | 256^3 | x4 | SAINT + L1 | 1, 2, 3 |
 | E2 | Filtered grayscale | 256^3 | x4 | SAINT + L1 + 0.10 gradient | 1, 2, 3 |
+| E3 | Filtered grayscale + aligned binary auxiliary target | 256^3 | x4 | E2 checkpoint + 0.10 topology fine-tuning | 1, 2, 3 |
 
 ### Future work - robustness
 
@@ -539,7 +601,7 @@ x2/x6 scale과 raw-grayscale robustness는 현재 실험 매트릭스에 등록�
 
 ### Phase 2 - property evaluation
 
-E0/E1/E2의 frozen predictions에 동일 segmentation과 solver를 적용한다. Topology와 permeability는 학습 설정 선택에 사용하지 않는다.
+E0/E1/E2/E3의 frozen predictions에 동일 hard segmentation과 solver를 적용한다. E3 학습용 soft conversion과 평가용 hard segmentation은 version을 따로 기록한다. Test topology와 permeability는 학습 설정 선택에 사용하지 않는다.
 
 ---
 
@@ -556,7 +618,8 @@ E0/E1/E2의 frozen predictions에 동일 segmentation과 solver를 적용한다.
 
 1. E0 vs E1: 학습 기반 SAINT의 효과
 2. E1 vs E2: gradient loss의 효과
-3. Grayscale error와 connectivity/permeability error의 관계
+3. E2 vs E3: 3D connectivity-aware topology constraint의 효과
+4. Grayscale error와 connectivity/permeability error의 관계
 
 ---
 
@@ -592,6 +655,10 @@ validation_missing_mae
 prediction_dtype
 prediction_shape
 segmentation_protocol_version
+topology_protocol_version
+soft_threshold
+soft_temperature
+soft_skeleton_iterations
 ```
 
 ### 11.2 저장 정책
@@ -628,7 +695,7 @@ Code, data, run artifact는 다음처럼 분리한다.
 
 - Raw data와 checkpoint는 Git 외부의 persistent project storage에 보관한다.
 - GPU 학습은 Slurm에 GPU 1장을 요청해 시작한다.
-- 초기 resource request는 GPU 1, CPU 8 cores, RAM 64 GB, batch size 8을 기준으로 한다.
+- 초기 resource request는 GPU 1, CPU 8 cores, RAM 64 GB를 기준으로 한다. E1/E2는 batch size 8부터, E3 full-volume fine-tuning은 batch size 1부터 확인한다.
 - CUDA OOM이 발생하면 `256^3` protocol을 바꾸지 않고 batch size를 줄인다.
 - 전체 학습 전에 one-batch overfit test로 loss 감소와 output shape를 확인한다.
 - 서버별 partition, GPU resource 표기와 실제 path는 local config에서만 변경한다.
@@ -665,9 +732,16 @@ Code, data, run artifact는 다음처럼 분리한다.
 - `lambda_grad=0.1` config 확인
 - Same-seed paired E1/E2 comparison
 
-### Gate E - structure and physics 평가 완료
+### Gate E - E3 완료
 
-- Frozen segmentation을 E0/E1/E2에 동일하게 적용
+- E2 best checkpoint에서 topology fine-tuning 시작
+- Soft threshold, temperature와 pore polarity 동결
+- Soft Dice/soft-clDice phantom 및 gradient-flow test 통과
+- Same-seed paired E2/E3 comparison
+
+### Gate F - structure and physics 평가 완료
+
+- Frozen segmentation을 E0/E1/E2/E3에 동일하게 적용
 - `256^3` test block에서 morphology/connectivity 계산
 - Solver 설정과 수렴 기준을 고정한 permeability 계산
 - Grayscale, topology, physics 결과를 서로 분리해 보고
@@ -684,6 +758,8 @@ Code, data, run artifact는 다음처럼 분리한다.
 | Synthetic z sampling과 실제 scan gap 차이 | 주장 범위 제한, raw/real paired data는 후속 검증 |
 | Per-core intensity 차이 | Training-only normalization 동결 |
 | Gradient loss가 noise를 강조 | Filtered data부터 시작, raw robustness에서 별도 분석 |
+| Soft-clDice가 pore topology 전체를 대표하지 못함 | connectivity surrogate로만 해석하고 Euler/component/percolation을 별도 평가 |
+| E3 full-volume 학습이 GPU memory를 초과 | AMI freeze, batch 1, mixed precision, checkpointing/accumulation 순으로 적용 |
 | Segmentation이 결과를 좌우 | Operator/version을 사전 동결하고 모든 model에 동일 적용 |
 | PSNR과 물성이 불일치 | 구조·연결성·permeability를 별도 결과로 보고 |
 | Patch leakage | Parent-core split을 patch 생성보다 먼저 적용 |
@@ -727,6 +803,15 @@ Code, data, run artifact는 다음처럼 분리한다.
 - [ ] `lambda_grad=0.10` config 고정
 - [ ] Seeds 1/2/3 E2 test predictions
 
+### Topology fine-tuning
+
+- [ ] Grayscale/binary polarity와 정렬 재확인
+- [ ] Training/validation-only `t`, `tau` 동결
+- [ ] 3D soft Dice/soft-clDice phantom test
+- [ ] Observed-slice composition과 missing-prediction gradient-flow test
+- [ ] E2 checkpoint에서 RFN fine-tuning
+- [ ] Seeds 1/2/3 E3 test predictions
+
 ### Evaluation
 
 - [ ] Missing MAE/PSNR/SSIM
@@ -740,7 +825,7 @@ Code, data, run artifact는 다음처럼 분리한다.
 
 권장 표현:
 
-> We evaluate the transfer of SAINT to held-out grayscale sandstone Micro-CT volumes under synthetic sparse-z sampling, first reproducing the original L1 objective and then isolating the effect of gradient regularization.
+> We evaluate the transfer of SAINT to held-out grayscale sandstone Micro-CT volumes under synthetic sparse-z sampling, first reproducing the original L1 objective and then isolating the effects of gradient regularization and 3D connectivity-aware topology fine-tuning.
 
 금지 또는 주의 표현:
 
@@ -758,6 +843,8 @@ Code, data, run artifact는 다음처럼 분리한다.
 2. Official SAINT code. <https://github.com/cpeng93/SAINT>
 3. Neumann, R. et al. 11 Sandstones: Raw, Filtered and Segmented Data. <https://doi.org/10.17612/F4H1-W124>
 4. Lucas-Oliveira, E. et al. Micro-computed tomography of sandstone rocks: Raw, filtered and segmented datasets. Data in Brief 2022. <https://doi.org/10.1016/j.dib.2022.107893>
+5. Shit, S. et al. clDice - A Novel Topology-Preserving Loss Function for Tubular Structure Segmentation. CVPR 2021. <https://openaccess.thecvf.com/content/CVPR2021/html/Shit_clDice_-_A_Novel_Topology-Preserving_Loss_Function_for_Tubular_Structure_CVPR_2021_paper.html>
+6. Official clDice implementation. <https://github.com/jocpae/clDice>
 
 ---
 
@@ -774,11 +861,19 @@ Code, data, run artifact는 다음처럼 분리한다.
 - Primary metric을 missing-slice Dice에서 MAE/PSNR/SSIM으로 변경
 - Segmentation을 학습 target에서 frozen evaluation stage로 이동
 
-### 2026-09-24 - experiment scope freeze
+### 2026-09-24 - initial experiment scope freeze (partially superseded by E3 decision)
 
 - Spatial crop을 `256 x 256 x 256`으로 고정
 - Primary scale을 x4로 고정
-- E0/E1/E2 비교와 seeds 1/2/3을 primary experiment로 고정
+- 초기 E0/E1/E2 비교와 seeds 1/2/3을 primary experiment로 고정
 - Gradient weight를 `lambda_grad=0.10`으로 고정
-- 3D topology loss, x2/x6, raw robustness 및 architecture search를 현재 범위에서 제외
+- 당시 3D topology loss, x2/x6, raw robustness 및 architecture search를 범위에서 제외했으며, topology 항목은 이후 E3 결정으로 대체
 - Data/storage/Slurm 실행 계약 추가
+
+### 2026-09-24 - E3 topology fine-tuning 추가
+
+- E2 checkpoint에서 시작하는 E3를 현재 실험 매트릭스에 추가
+- 3D topology surrogate를 `0.5 soft Dice + 0.5 soft-clDice`로 고정
+- E3 total loss를 `L1 + 0.10 gradient + 0.10 topology`로 정의
+- L1/gradient의 2D grayscale 적용 구간과 topology의 3D soft-volume 적용 구간을 분리
+- Permeability는 학습 loss가 아니라 최종 평가 지표로 유지

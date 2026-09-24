@@ -1,7 +1,7 @@
 # 0002 - Fixed 256-cube crop and primary experiment scope
 
 - Date: 2026-09-24
-- Status: Accepted
+- Status: Accepted; experiment-matrix decision superseded in part by 0003
 
 ## Context
 
@@ -14,9 +14,9 @@ The source sandstone volumes are `1000 x 1000 x 1000`. Using a full volume for e
 3. Freeze validation and test crop coordinates in versioned manifests.
 4. Use x4 z-only sparse sampling as the only primary scale.
 5. Use SAINT sparse-axis `patch_size=10`; this is an internal 2D strip length and is distinct from the 3D crop size.
-6. Compare only E0 linear interpolation, E1 SAINT + L1 and E2 SAINT + L1 + `0.1 * gradient loss` in the primary study.
+6. Initially compare E0 linear interpolation, E1 SAINT + L1 and E2 SAINT + L1 + `0.1 * gradient loss`. Decision 0003 adds E3 without changing E0-E2.
 7. Use seeds 1, 2 and 3 for learned experiments.
-8. Keep 3D topology loss, GANs, architecture search, x2/x6 and raw-grayscale robustness outside the current experiment scope.
+8. Keep GANs, architecture search, x2/x6 and raw-grayscale robustness outside the current experiment scope. The topology-loss exclusion is superseded by decision 0003.
 9. Measure topology and permeability after inference using a frozen segmentation and evaluation protocol.
 
 ## Consequences
