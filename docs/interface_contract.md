@@ -68,7 +68,7 @@ Final dense volume:        [B, 1, X, Y, Z_hr]
 | 내부 binary | `bool` 또는 `uint8` | `pore=1`, `solid=0` |
 | observed/missing mask | `bool` | 포함 위치가 `True` |
 
-정규화의 lower/upper 값은 training core만으로 추정해 version과 함께 동결한다. 개별 test core에 맞춘 normalization은 금지한다.
+정규화의 lower/upper 값은 Berea training slab만으로 추정해 version과 함께 동결한다. Validation/test 영역에 맞춘 normalization은 금지한다.
 
 ### 2.4 Physical spacing
 
@@ -211,7 +211,7 @@ compute_physics_metrics(predicted_pore, target_pore, *, spacing_um_xyz,
 
 다음 항목은 API를 바꾸지 않고 config/manifest로 동결한다.
 
-- 11개 core의 실제 train/validation/test ID
+- Berea spatial split manifest version과 고정 crop 좌표
 - training-only normalization lower/upper와 `normalization_id`
 - validation/test crop 좌표와 sampling offset
 - soft threshold, temperature와 topology protocol version

@@ -9,7 +9,7 @@ This document defines the portable server layout. Replace `<group>` and the two 
 /project/<group>/data/11_sandstones/
   raw/                                    # immutable 1000^3 source volumes
   processed/                              # normalized or chunked representations
-  splits/                                 # core split and fixed crop manifests
+  splits/                                 # spatial split and fixed crop manifests
 /project/<group>/runs/theme26/
   E0_interpolation/
   E1_saint_l1/

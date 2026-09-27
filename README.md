@@ -12,9 +12,10 @@ Sparse한 3D sandstone Micro-CT volume에서 누락된 z축 단면을 복원하�
 
 | 항목 | 설정 |
 |---|---|
-| Dataset | 11 Sandstones filtered grayscale |
+| Dataset | Berea sandstone filtered grayscale + aligned binary |
 | Source volume | `1000 x 1000 x 1000` |
 | Spatial crop | `256 x 256 x 256` |
+| Split | One-volume spatial holdout with 32-voxel buffers |
 | Axis convention | `[X, Y, Z]` |
 | Sparse axis | Z |
 | Sampling factor | x4 |
@@ -27,7 +28,8 @@ Sparse한 3D sandstone Micro-CT volume에서 누락된 z축 단면을 복원하�
 
 ## 데이터
 
-- Dataset: [11 Sandstones: Raw, Filtered and Segmented Data](https://digitalporousmedia.org/datasets/317/)
+- Source dataset: [11 Sandstones: Raw, Filtered and Segmented Data](https://digitalporousmedia.org/datasets/317/)
+- Selected sample: Berea sandstone only
 - DOI: [10.17612/F4H1-W124](https://doi.org/10.17612/F4H1-W124)
 - License: ODC-By 1.0
 - Voxel spacing: `2.25 um` isotropic
@@ -41,6 +43,21 @@ Sparse한 3D sandstone Micro-CT volume에서 누락된 z축 단면을 복원하�
 /project/<group>/data/11_sandstones/
 /project/<group>/runs/theme26/
 ```
+
+### Berea spatial split
+
+단일 `1000³` Berea volume을 X축 기준으로 분리하며 crop이 split 경계를 넘지 않게 합니다.
+
+```text
+Train:      X=[0,400)    48 random crops
+Buffer:     X=[400,432)
+Validation: X=[432,688)   9 fixed crops
+Buffer:     X=[688,720)
+Test:       X=[720,976)   9 fixed crops
+Unused:     X=[976,1000)
+```
+
+고정 좌표는 `configs/data/berea_spatial_split_v1.csv`에 저장되어 있습니다. 이는 한 sandstone 내부의 spatial holdout이므로 다른 암종에 대한 일반화는 주장하지 않습니다.
 
 ## 문제 설정
 

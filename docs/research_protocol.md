@@ -14,8 +14,8 @@ SAINT를 grayscale sandstone Micro-CT에 적용하여 sparse z-slice로부터 de
 
 ### Included
 
-- 11 Sandstones filtered grayscale
-- Parent-core train/validation/test split
+- Berea sandstone filtered grayscale와 aligned binary
+- 단일 volume의 spatially disjoint train/validation/test split
 - `256 x 256 x 256` crop
 - Z축 x4 sparse sampling
 - SAINT AMI/RFN reimplementation
@@ -31,6 +31,7 @@ SAINT를 grayscale sandstone Micro-CT에 적용하여 sparse z-slice로부터 de
 - Persistent-homology 및 permeability training loss
 - 실제 LR/HR scanner pair 주장
 - Test set 기반 threshold 또는 hyperparameter 선택
+- 다른 sandstone 종류에 대한 일반화 주장
 
 ## 3. Dataset
 
@@ -44,12 +45,13 @@ SAINT를 grayscale sandstone Micro-CT에 적용하여 sparse z-slice로부터 de
 - Voxel spacing: `2.25 um` isotropic
 - Primary grayscale: `*_grayscale_filtered.raw`
 - Topology reference: aligned binary volume
+- Selected sample: Berea sandstone
 
 Binary volume은 grayscale 모델의 입력 또는 reconstruction target이 아닙니다. E3 training/validation의 auxiliary topology target과 모든 모델의 공통 평가 reference로 사용합니다.
 
 ### Provenance
 
-각 source core에 다음 metadata를 저장합니다.
+선택한 Berea source volume에 다음 metadata를 저장합니다.
 
 ```text
 dataset_doi
@@ -70,16 +72,21 @@ Shape, dtype와 endianness는 파일명만 보고 추정하지 않고 metadata�
 ### Split
 
 ```text
-Train:      8 parent cores
-Validation: 1 parent core
-Test:       2 parent cores
+Train slab:      X=[0,400)     48 random 256^3 crops
+Buffer:          X=[400,432)   unused
+Validation slab: X=[432,688)    9 fixed 256^3 crops
+Buffer:          X=[688,720)   unused
+Test slab:       X=[720,976)    9 fixed 256^3 crops
+Unused tail:     X=[976,1000)
 ```
 
-- Parent core를 먼저 분리한 뒤 crop을 생성합니다.
-- 동일 core의 crop을 여러 split에 포함하지 않습니다.
-- Training crop은 train core 내부에서 추출합니다.
-- Validation/test crop과 sampling offset은 manifest에 고정합니다.
-- 정확한 core ID는 첫 headline training 전에 동결합니다.
+- 모든 crop은 할당된 X slab 내부에 완전히 포함됩니다.
+- Split 사이에는 최소 32 voxel의 사용하지 않는 완충 구간을 둡니다.
+- Validation/test의 YZ origin은 `(0, 372, 744)` grid의 9개 조합으로 고정합니다.
+- Training crop 48개의 좌표는 seed 2026으로 한 번 생성해 동결합니다.
+- 모든 split의 sampling factor는 4, offset은 0입니다.
+- 좌표는 `configs/data/berea_spatial_split_v1.csv`에 기록합니다.
+- 동일 volume의 spatial holdout이므로 결론은 Berea sandstone에 한정합니다.
 
 ## 4. Data Contract
 
@@ -99,7 +106,7 @@ Source: uint8 [0,255]
 Model:  float32 [0,1]
 ```
 
-Normalization parameters는 training core만으로 추정하고 모든 split과 모델에 동일하게 사용합니다.
+Normalization parameters는 training slab만으로 추정하고 모든 split과 모델에 동일하게 사용합니다.
 
 ### Binary
 
@@ -304,7 +311,7 @@ Prediction이 non-percolating이면 임의의 작은 permeability를 대입하�
 
 ### Statistical unit
 
-- Held-out parent core 또는 사전 등록된 non-overlapping block
+- 사전 등록된 spatially disjoint Berea test blocks
 - Slice와 voxel을 독립 표본으로 간주하지 않음
 - 동일 core, crop와 offset의 paired comparison
 - Seed와 core/block 변동을 분리해 보고
@@ -340,7 +347,7 @@ soft_skeleton_iterations
 
 ## 11. Values to Freeze Before Full Training
 
-- Exact train/validation/test core IDs
+- Berea spatial split manifest version과 좌표
 - Normalization method and parameters
 - Validation/test crop coordinates and sampling offsets
 - AMI/RFN stage loss region
@@ -354,9 +361,9 @@ soft_skeleton_iterations
 
 ### Data
 
-- [ ] 11 core checksum, shape, dtype와 endianness 확인
+- [ ] Berea grayscale/binary checksum, shape, dtype와 endianness 확인
 - [ ] Grayscale/binary alignment와 pore polarity 확인
-- [ ] Parent-core split manifest 동결
+- [x] Spatial split manifest 좌표 동결
 - [ ] Normalization config 동결
 - [ ] Aligned `256^3` crop test
 - [ ] x4 sampling과 primary mask test
