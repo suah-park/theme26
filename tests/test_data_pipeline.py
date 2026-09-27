@@ -11,6 +11,7 @@ import numpy as np
 
 from theme26.contracts import CropSpec, SamplingSpec, VolumeMetadata
 from theme26.data import (
+    CropRecord,
     compose_full_volume,
     extract_aligned_crop,
     linear_interpolate_z,
@@ -20,7 +21,7 @@ from theme26.data import (
     sample_training_crop,
     to_pore_mask,
 )
-from theme26.training import DigitalRockAmiDataset
+from theme26.training import DigitalRockAmiDataset, ManifestAmiDataset
 
 
 class RawVolumeTests(unittest.TestCase):
@@ -127,6 +128,38 @@ class CropAndSamplingTests(unittest.TestCase):
         self.assertEqual(tuple(coronal["input"].shape), (3, 4, 4))
         self.assertEqual(tuple(coronal["target"].shape), (1, 4, 8))
         self.assertEqual(tuple(sagittal["fdm"].shape), (2, 3, 3))
+
+    def test_manifest_ami_dataset_reads_marginals_lazily(self) -> None:
+        raw = np.rint(self.dense * 255).astype(np.uint8)
+        metadata = VolumeMetadata(
+            sample_id="berea",
+            source_core_id="berea",
+            shape_xyz=(4, 5, 8),
+            voxel_spacing_um_xyz=(2.25, 2.25, 2.25),
+            dtype="uint8",
+            endianness="not-applicable",
+        )
+        record = CropRecord(
+            manifest_version="test",
+            sample_id="crop",
+            source_core_id="berea",
+            split="train",
+            crop=CropSpec((0, 0, 0), (4, 5, 8)),
+            sampling=SamplingSpec(factor=2),
+        )
+        dataset = ManifestAmiDataset(
+            raw,
+            records=(record,),
+            metadata=metadata,
+            normalization_lower=0,
+            normalization_upper=255,
+        )
+        self.assertEqual(len(dataset), 9)
+        sagittal = dataset[1]
+        expected_target = raw[1, :, :].astype(np.float32) / 255.0
+        expected_centre = expected_target[:, ::2]
+        np.testing.assert_allclose(sagittal["target"].numpy()[0], expected_target)
+        np.testing.assert_allclose(sagittal["input"].numpy()[1], expected_centre)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,17 @@
+normalization_id: berea_train_slab_p005_p995_v1
+method: clipped_percentile_minmax
+source_split: train
+source_region_xyz:
+- - 0
+  - 400
+- - 0
+  - 1000
+- - 0
+  - 1000
+voxel_count: 400000000
+lower_percentile: 0.5
+upper_percentile: 99.5
+lower_uint8: 2
+upper_uint8: 184
+observed_min_uint8: 0
+observed_max_uint8: 255

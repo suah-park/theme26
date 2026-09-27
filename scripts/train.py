@@ -20,9 +20,11 @@ import yaml
 from torch.utils.data import DataLoader, Subset
 
 from theme26.contracts import CropSpec, SamplingSpec, VolumeMetadata
+from theme26.data import read_crop_manifest, validate_spatial_split
 from theme26.models.saint import AnisotropicMetaInterpolator, ResidualFusionNetwork
 from theme26.training import (
     DigitalRockAmiDataset,
+    ManifestAmiDataset,
     save_checkpoint,
     train_one_epoch,
     validate_one_epoch,
@@ -95,7 +97,60 @@ def _build_loaders(
 ) -> tuple[DataLoader, DataLoader]:
     data_config = config["data"]
     mode = data_config.get("mode")
-    if mode == "raw_ami_smoke":
+    if mode == "berea_manifest":
+        if stage != "ami":
+            raise ValueError("data.mode='berea_manifest' supports only AMI training")
+        path_env = str(data_config.get("path_env", "THEME26_GRAYSCALE_RAW"))
+        raw_path = os.environ.get(path_env)
+        if not raw_path:
+            raise RuntimeError(f"set environment variable {path_env} to the grayscale .raw path")
+        normalization_path = Path(data_config["normalization_config"])
+        if not normalization_path.is_absolute():
+            normalization_path = REPOSITORY_ROOT / normalization_path
+        with normalization_path.open("r", encoding="utf-8") as stream:
+            normalization_config = yaml.safe_load(stream)
+        if not isinstance(normalization_config, dict):
+            raise ValueError("normalization config root must be a mapping")
+        metadata_config = data_config["metadata"]
+        metadata = VolumeMetadata(
+            sample_id=str(metadata_config.get("sample_id", "berea")),
+            source_core_id=str(metadata_config.get("source_core_id", "berea_2d25um")),
+            shape_xyz=tuple(int(value) for value in metadata_config["shape_xyz"]),
+            voxel_spacing_um_xyz=tuple(
+                float(value) for value in metadata_config["spacing_um_xyz"]
+            ),
+            dtype=str(metadata_config.get("dtype", "uint8")),
+            endianness=str(metadata_config.get("endianness", "not-applicable")),
+            normalization_id=str(normalization_config["normalization_id"]),
+            storage_order=str(metadata_config.get("storage_order", "ZYX")),
+        )
+        manifest_path = Path(data_config["manifest"])
+        if not manifest_path.is_absolute():
+            manifest_path = REPOSITORY_ROOT / manifest_path
+        records = read_crop_manifest(manifest_path)
+        validate_spatial_split(
+            records,
+            volume_shape_xyz=metadata.shape_xyz,
+            minimum_buffer_voxels=int(data_config.get("minimum_buffer_voxels", 32)),
+        )
+        shared = {
+            "path": raw_path,
+            "metadata": metadata,
+            "normalization_lower": float(normalization_config["lower_uint8"]),
+            "normalization_upper": float(normalization_config["upper_uint8"]),
+            "kernel_size": int(config["model"].get("kernel_size", 3)),
+        }
+        train_dataset = ManifestAmiDataset.from_raw(
+            records=tuple(record for record in records if record.split == "train"),
+            **shared,
+        )
+        validation_dataset = ManifestAmiDataset.from_raw(
+            records=tuple(
+                record for record in records if record.split == "validation"
+            ),
+            **shared,
+        )
+    elif mode == "raw_ami_smoke":
         if stage != "ami":
             raise ValueError("data.mode='raw_ami_smoke' supports only experiment.stage='ami'")
         path_env = str(data_config.get("path_env", "THEME26_GRAYSCALE_RAW"))
@@ -173,23 +228,29 @@ def _build_loaders(
         )
     else:
         raise ValueError(
-            "data.mode must be 'synthetic', or 'raw_ami_smoke' for the AMI stage"
+            "data.mode must be 'synthetic', 'raw_ami_smoke', or 'berea_manifest'"
         )
 
     batch_size = int(config["training"].get("batch_size", 1))
+    num_workers = int(config["training"].get("num_workers", 0))
+    if num_workers < 0:
+        raise ValueError("training.num_workers must be non-negative")
+    pin_memory = bool(config["training"].get("pin_memory", False))
     generator = torch.Generator().manual_seed(seed)
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
         generator=generator,
     )
     validation_loader = DataLoader(
         validation_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
     )
     return train_loader, validation_loader
 

@@ -68,7 +68,7 @@ Final dense volume:        [B, 1, X, Y, Z_hr]
 | 내부 binary | `bool` 또는 `uint8` | `pore=1`, `solid=0` |
 | observed/missing mask | `bool` | 포함 위치가 `True` |
 
-정규화의 lower/upper 값은 Berea training slab만으로 추정해 version과 함께 동결한다. Validation/test 영역에 맞춘 normalization은 금지한다.
+정규화의 lower/upper 값은 Berea training slab만으로 추정해 version과 함께 동결한다. 현재 ID는 `berea_train_slab_p005_p995_v1`, source uint8 범위는 `2/184`이다. Validation/test 영역에 맞춘 normalization은 금지한다.
 
 ### 2.4 Physical spacing
 

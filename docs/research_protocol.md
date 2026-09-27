@@ -106,7 +106,7 @@ Source: uint8 [0,255]
 Model:  float32 [0,1]
 ```
 
-Normalization parameters는 training slab만으로 추정하고 모든 split과 모델에 동일하게 사용합니다.
+Normalization은 training slab `X=[0,400)`의 4억 voxel만으로 계산한 0.5/99.5 percentile clipping과 min-max scaling을 사용합니다. 동결된 source uint8 lower/upper는 `2/184`이며 모든 split과 모델에 동일하게 적용합니다. 설정 ID는 `berea_train_slab_p005_p995_v1`입니다.
 
 ### Binary
 
@@ -348,7 +348,7 @@ soft_skeleton_iterations
 ## 11. Values to Freeze Before Full Training
 
 - Berea spatial split manifest version과 좌표
-- Normalization method and parameters
+- Normalization config 변경 여부
 - Validation/test crop coordinates and sampling offsets
 - AMI/RFN stage loss region
 - Soft threshold, temperature and skeletonization iterations
@@ -364,7 +364,7 @@ soft_skeleton_iterations
 - [ ] Berea grayscale/binary checksum, shape, dtype와 endianness 확인
 - [ ] Grayscale/binary alignment와 pore polarity 확인
 - [x] Spatial split manifest 좌표 동결
-- [ ] Normalization config 동결
+- [x] Normalization config 동결
 - [ ] Aligned `256^3` crop test
 - [ ] x4 sampling과 primary mask test
 

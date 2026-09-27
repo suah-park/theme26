@@ -59,6 +59,8 @@ Unused:     X=[976,1000)
 
 고정 좌표는 `configs/data/berea_spatial_split_v1.csv`에 저장되어 있습니다. 이는 한 sandstone 내부의 spatial holdout이므로 다른 암종에 대한 일반화는 주장하지 않습니다.
 
+Grayscale normalization은 train slab의 4억 voxel만 사용해 계산한 0.5/99.5 percentile(`uint8 2/184`)을 모든 split에 공통 적용합니다. 고정 설정은 `configs/data/berea_normalization_v1.yaml`에 저장합니다.
+
 ## 문제 설정
 
 Canonical dense volume은 다음 형식을 사용합니다.
@@ -190,6 +192,13 @@ python scripts/train.py --config configs/e1_rfn_smoke.yaml --device cpu
 ```powershell
 $env:THEME26_GRAYSCALE_RAW = "C:\path\to\Berea_2d25um_grayscale_filtered.raw"
 python scripts/train.py --config configs/e1_ami_real_data_smoke.yaml --device cpu
+```
+
+고정 spatial manifest와 train-only normalization을 함께 확인하는 pilot은 다음과 같습니다. 작은 모델로 한 step만 실행하므로 연구 결과가 아니라 GPU 학습 전 연결 검증입니다.
+
+```powershell
+$env:THEME26_GRAYSCALE_RAW = "C:\path\to\Berea_2d25um_grayscale_filtered.raw"
+python scripts/train.py --config configs/e1_ami_berea_pilot.yaml --device cpu
 ```
 
 ```bash
