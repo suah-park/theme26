@@ -322,6 +322,7 @@ source_core_id
 split_manifest_version
 crop_origin_xyz
 crop_shape_xyz
+raw_storage_order
 normalization_id
 sampling_factor
 sampling_offset

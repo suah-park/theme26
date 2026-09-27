@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import random
 import sys
 from pathlib import Path
@@ -16,10 +17,16 @@ if str(SOURCE_ROOT) not in sys.path:
 import numpy as np
 import torch
 import yaml
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
+from theme26.contracts import CropSpec, SamplingSpec, VolumeMetadata
 from theme26.models.saint import AnisotropicMetaInterpolator, ResidualFusionNetwork
-from theme26.training import save_checkpoint, train_one_epoch, validate_one_epoch
+from theme26.training import (
+    DigitalRockAmiDataset,
+    save_checkpoint,
+    train_one_epoch,
+    validate_one_epoch,
+)
 from theme26.training.synthetic import SyntheticAmiDataset, SyntheticRfnDataset
 
 
@@ -83,16 +90,57 @@ def _build_model(config: dict[str, Any], stage: str) -> torch.nn.Module:
     raise ValueError("experiment.stage must be 'ami' or 'rfn'")
 
 
-def _build_synthetic_loaders(
+def _build_loaders(
     config: dict[str, Any], stage: str, seed: int
 ) -> tuple[DataLoader, DataLoader]:
     data_config = config["data"]
-    if data_config.get("mode") != "synthetic":
-        raise NotImplementedError(
-            "digital-rock DataLoader integration is pending the data module; "
-            "use data.mode='synthetic' for the training-loop smoke test"
+    mode = data_config.get("mode")
+    if mode == "raw_ami_smoke":
+        if stage != "ami":
+            raise ValueError("data.mode='raw_ami_smoke' supports only experiment.stage='ami'")
+        path_env = str(data_config.get("path_env", "THEME26_GRAYSCALE_RAW"))
+        raw_path = os.environ.get(path_env)
+        if not raw_path:
+            raise RuntimeError(f"set environment variable {path_env} to the grayscale .raw path")
+        metadata_config = data_config["metadata"]
+        metadata = VolumeMetadata(
+            sample_id=str(metadata_config.get("sample_id", "berea")),
+            source_core_id=str(metadata_config.get("source_core_id", "berea")),
+            shape_xyz=tuple(int(value) for value in metadata_config["shape_xyz"]),
+            voxel_spacing_um_xyz=tuple(
+                float(value) for value in metadata_config["spacing_um_xyz"]
+            ),
+            dtype=str(metadata_config.get("dtype", "uint8")),
+            endianness=str(metadata_config.get("endianness", "not-applicable")),
+            normalization_id=str(
+                data_config.get("normalization_id", "smoke_uint8_0_255")
+            ),
+            storage_order=str(metadata_config.get("storage_order", "ZYX")),
         )
-    if stage == "ami":
+        crop = CropSpec(
+            origin_xyz=tuple(int(value) for value in data_config["crop_origin_xyz"]),
+            shape_xyz=tuple(int(value) for value in data_config["crop_shape_xyz"]),
+        )
+        normalization = data_config.get("normalization", {"lower": 0, "upper": 255})
+        dataset = DigitalRockAmiDataset.from_raw(
+            raw_path,
+            metadata=metadata,
+            crop=crop,
+            normalization_lower=float(normalization["lower"]),
+            normalization_upper=float(normalization["upper"]),
+            sampling=SamplingSpec(factor=int(config["model"].get("factor", 4))),
+            kernel_size=int(config["model"].get("kernel_size", 3)),
+        )
+        requested = min(int(data_config.get("max_marginals", 8)), len(dataset))
+        if requested < 2:
+            raise ValueError("raw AMI smoke test requires at least two marginal samples")
+        indices = torch.randperm(
+            len(dataset), generator=torch.Generator().manual_seed(seed)
+        )[:requested]
+        split = max(1, requested - max(1, requested // 4))
+        train_dataset = Subset(dataset, indices[:split].tolist())
+        validation_dataset = Subset(dataset, indices[split:].tolist())
+    elif mode == "synthetic" and stage == "ami":
         kwargs = {
             "length": int(data_config.get("length", 16)),
             "z_lr": int(data_config.get("z_lr", 8)),
@@ -110,7 +158,7 @@ def _build_synthetic_loaders(
             seed=seed + 10_000,
             **kwargs,
         )
-    else:
+    elif mode == "synthetic" and stage == "rfn":
         kwargs = {
             "x_size": int(data_config.get("x_size", 16)),
             "y_size": int(data_config.get("y_size", 16)),
@@ -122,6 +170,10 @@ def _build_synthetic_loaders(
             samples=int(data_config.get("validation_samples", 4)),
             seed=seed + 10_000,
             **kwargs,
+        )
+    else:
+        raise ValueError(
+            "data.mode must be 'synthetic', or 'raw_ami_smoke' for the AMI stage"
         )
 
     batch_size = int(config["training"].get("batch_size", 1))
@@ -162,7 +214,7 @@ def main() -> None:
     device = _resolve_device(args.device)
 
     model = _build_model(config, stage).to(device)
-    train_loader, validation_loader = _build_synthetic_loaders(config, stage, seed)
+    train_loader, validation_loader = _build_loaders(config, stage, seed)
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=float(training.get("learning_rate", 1e-4)),

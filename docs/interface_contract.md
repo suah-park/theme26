@@ -32,6 +32,8 @@ Axial plane:        fixed Z -> [X, Y]
 
 PyTorch `Conv3d`가 차원을 `[D,H,W]`라고 부르더라도 이 프로젝트에서는 그 세 공간 차원의 의미를 `[X,Y,Z]`로 해석한다. loader가 다른 순서를 반환하면 loader에서 한 번만 transpose하고 metadata에 기록한다.
 
+`VolumeMetadata.storage_order`는 raw 파일에 저장된 순서(`XYZ` 또는 `ZYX`)를 명시한다. loader 출력의 의미론적 순서는 항상 `axis_order="XYZ"`이며, 저장 순서를 추측하지 않는다.
+
 ### 2.2 Shape
 
 ```text
@@ -103,12 +105,15 @@ E0의 마지막 관측 slice 뒤에 남는 위치는 full-volume shape를 완성
 
 ## 4. 공개 API
 
-아래 signature가 모듈 사이의 계약이다. skeleton의 `NotImplementedError`를 담당자가 구현으로 교체한다.
+아래 signature가 모듈 사이의 계약이다. 미구현 skeleton의 `NotImplementedError`는 담당자가 이 계약을 유지하며 구현으로 교체한다.
 
 ### 4.1 Data
 
 ```python
 read_raw_volume(path, *, metadata) -> np.ndarray  # [X,Y,Z], source dtype
+
+extract_volume_crop(volume, *, crop) -> np.ndarray
+# source dtype을 유지하는 [crop_x,crop_y,crop_z] 복사본
 
 normalize_grayscale(volume, *, lower, upper) -> np.ndarray
 # [X,Y,Z], float32 [0,1]

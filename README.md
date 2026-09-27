@@ -155,7 +155,7 @@ tests/
 └─ test_contracts.py
 ```
 
-SAINT forward, E1 L1 학습 엔진과 기본 loss는 구현되어 있습니다. Data, topology loss와 evaluation의 `NotImplementedError`는 각 담당자가 구현할 interface skeleton이며, 공개 함수 signature와 데이터 계약을 유지합니다.
+SAINT forward, E1 L1 학습 엔진, raw volume 로딩, aligned crop, sparse-z sampling과 기본 loss는 구현되어 있습니다. Topology loss와 evaluation의 `NotImplementedError`는 이후 실험 단계에서 구현할 interface skeleton이며, 공개 함수 signature와 데이터 계약을 유지합니다.
 
 ## E1 학습 루프 확인
 
@@ -166,7 +166,19 @@ python scripts/train.py --config configs/e1_ami_smoke.yaml --device cpu
 python scripts/train.py --config configs/e1_rfn_smoke.yaml --device cpu
 ```
 
-두 설정은 작은 synthetic tensor로 forward, backward, validation 및 `best.pt`/`last.pt` 저장만 확인합니다. 연구 결과에 사용하지 않으며, 실제 데이터 모듈이 병합되면 동일한 training engine에 Digital Rock DataLoader를 연결합니다.
+두 설정은 작은 synthetic tensor로 forward, backward, validation 및 `best.pt`/`last.pt` 저장만 확인합니다. 연구 결과에 사용하지 않습니다. 실제 Digital Rock DataLoader도 같은 training engine을 사용합니다.
+
+실제 Berea 파일과의 연결은 개인 경로를 config에 저장하지 않고 환경 변수로 전달합니다. 아래 설정은 256³ center crop에서 AMI batch 생성과 한 번의 optimizer step만 확인하는 smoke test입니다. `0-255` 정규화와 작은 모델을 사용하므로 연구 결과로 사용하지 않습니다.
+
+```powershell
+$env:THEME26_GRAYSCALE_RAW = "C:\path\to\Berea_2d25um_grayscale_filtered.raw"
+python scripts/train.py --config configs/e1_ami_real_data_smoke.yaml --device cpu
+```
+
+```bash
+export THEME26_GRAYSCALE_RAW=/path/to/Berea_2d25um_grayscale_filtered.raw
+python scripts/train.py --config configs/e1_ami_real_data_smoke.yaml --device cpu
+```
 
 ## 문서
 
