@@ -155,7 +155,18 @@ tests/
 └─ test_contracts.py
 ```
 
-현재 Python 파일은 팀 분업을 위한 interface skeleton입니다. 실제 알고리즘은 각 모듈의 함수 signature와 데이터 계약을 유지하면서 구현합니다.
+SAINT forward, E1 L1 학습 엔진과 기본 loss는 구현되어 있습니다. Data, topology loss와 evaluation의 `NotImplementedError`는 각 담당자가 구현할 interface skeleton이며, 공개 함수 signature와 데이터 계약을 유지합니다.
+
+## E1 학습 루프 확인
+
+AMI와 RFN의 E1 L1 학습 루프는 실제 데이터 모듈과 독립적으로 smoke test할 수 있습니다.
+
+```bash
+python scripts/train.py --config configs/e1_ami_smoke.yaml --device cpu
+python scripts/train.py --config configs/e1_rfn_smoke.yaml --device cpu
+```
+
+두 설정은 작은 synthetic tensor로 forward, backward, validation 및 `best.pt`/`last.pt` 저장만 확인합니다. 연구 결과에 사용하지 않으며, 실제 데이터 모듈이 병합되면 동일한 training engine에 Digital Rock DataLoader를 연결합니다.
 
 ## 문서
 
