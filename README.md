@@ -42,6 +42,23 @@ Sparse한 3D sandstone Micro-CT volume에서 누락된 z축 단면을 복원하�
 /project/<group>/runs/theme26/
 ```
 
+### Berea 전처리
+
+`scripts/preprocess_berea.py`는 두 Berea RAW 파일의 byte size/dtype을 검증하고, canonical `[X,Y,Z]` `uint8` volume을 읽어 정규화, aligned `256³` crop, binary pore mask 및 x4 sparse-z/E0 artifact를 만듭니다. `--normalization-lower/--normalization-upper`는 반드시 training core에서 동결한 값이고, `--source-pore-value`는 dataset metadata로 확인한 값이어야 합니다.
+
+```bash
+PYTHONPATH=src python scripts/preprocess_berea.py \
+  --data-dir /path/to/11_sandstones/Berea \
+  --output /path/to/artifacts/berea_crop.npz \
+  --crop-origin 372 372 372 \
+  --normalization-lower <frozen_train_lower> \
+  --normalization-upper <frozen_train_upper> \
+  --source-pore-value <0_or_1> \
+  --offset 0
+```
+
+Artifact에는 normalized grayscale/pore crop, `[256,256,64]` sparse input, HR-grid masks, observed z-indices 및 linear E0 volume이 포함됩니다. 기본 protocol (`offset=0`)에서 observed slice는 64장, headline `primary_metric_mask`는 189장의 bracketed missing slice만 포함합니다.
+
 ## 문제 설정
 
 Canonical dense volume은 다음 형식을 사용합니다.

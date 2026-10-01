@@ -1,0 +1,86 @@
+{
+  "manifest_version": "11-sandstones-split-v1",
+  "split_rationale": "Frozen parent-core split supplied for the primary protocol; no core appears in more than one split.",
+  "axis_order": "XYZ",
+  "source_shape_xyz": [
+    1000,
+    1000,
+    1000
+  ],
+  "dtype": "uint8",
+  "endianness": "little (not material for uint8)",
+  "splits": {
+    "train": [
+      {
+        "source_core_id": "Bandera Brown",
+        "grayscale_filtered_filename": "BanderaBrown_2d25um_grayscale_filtered.raw",
+        "binary_filename": "BanderaBrown_2d25um_binary.raw",
+        "source_pore_value": 0
+      },
+      {
+        "source_core_id": "Bandera Gray",
+        "grayscale_filtered_filename": "BanderaGray_2d25um_grayscale_filtered.raw",
+        "binary_filename": "BanderaGray_2d25um_binary.raw",
+        "source_pore_value": 0
+      },
+      {
+        "source_core_id": "Berea Sister Gray",
+        "grayscale_filtered_filename": "BSG_2d25um_grayscale_filtered.raw",
+        "binary_filename": "BSG_2d25um_binary.raw",
+        "source_pore_value": 0
+      },
+      {
+        "source_core_id": "Berea Upper Gray",
+        "grayscale_filtered_filename": "BUG_2d25um_grayscale_filtered.raw",
+        "binary_filename": "BUG_2d25um_binary.raw",
+        "source_pore_value": 0
+      },
+      {
+        "source_core_id": "Buff Berea",
+        "grayscale_filtered_filename": "BB_2d25um_grayscale_filtered.raw",
+        "binary_filename": "BB_2d25um_binary.raw",
+        "source_pore_value": 0
+      },
+      {
+        "source_core_id": "CastleGate",
+        "grayscale_filtered_filename": "CastleGate_2d25um_grayscale_filtered.raw",
+        "binary_filename": "CastleGate_2d25um_binary.raw",
+        "source_pore_value": 0
+      },
+      {
+        "source_core_id": "Kirby",
+        "grayscale_filtered_filename": "Kirby_2d25um_grayscale_filtered.raw",
+        "binary_filename": "Kirby_2d25um_binary.raw",
+        "source_pore_value": 0
+      },
+      {
+        "source_core_id": "Leopard",
+        "grayscale_filtered_filename": "Leopard_2d25um_grayscale_filtered.raw",
+        "binary_filename": "Leopard_2d25um_binary.raw",
+        "source_pore_value": 0
+      }
+    ],
+    "validation": [
+      {
+        "source_core_id": "Berea",
+        "grayscale_filtered_filename": "Berea_2d25um_grayscale_filtered.raw",
+        "binary_filename": "Berea_2d25um_binary.raw",
+        "source_pore_value": 0
+      }
+    ],
+    "test": [
+      {
+        "source_core_id": "Bentheimer",
+        "grayscale_filtered_filename": "Bentheimer_2d25um_grayscale_filtered.raw",
+        "binary_filename": "Bentheimer_2d25um_binary.raw",
+        "source_pore_value": 0
+      },
+      {
+        "source_core_id": "Parker",
+        "grayscale_filtered_filename": "Parker_2d25um_grayscale_filtered.raw",
+        "binary_filename": "Parker_2d25um_binary.raw",
+        "source_pore_value": 0
+      }
+    ]
+  }
+}

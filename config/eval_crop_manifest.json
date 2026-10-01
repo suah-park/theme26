@@ -1,0 +1,294 @@
+{
+  "manifest_version": "11-sandstones-eval-crops-v1",
+  "normalization_id": "11-sandstones-train-pooled-p0.5-p99.5-v1",
+  "crops": [
+    {
+      "crop_id": "berea_00",
+      "source_core_id": "Berea",
+      "split": "validation",
+      "origin_xyz": [
+        64,
+        64,
+        64
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "berea_01",
+      "source_core_id": "Berea",
+      "split": "validation",
+      "origin_xyz": [
+        680,
+        64,
+        680
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "berea_02",
+      "source_core_id": "Berea",
+      "split": "validation",
+      "origin_xyz": [
+        64,
+        680,
+        680
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "berea_03",
+      "source_core_id": "Berea",
+      "split": "validation",
+      "origin_xyz": [
+        680,
+        680,
+        64
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "bentheimer_00",
+      "source_core_id": "Bentheimer",
+      "split": "test",
+      "origin_xyz": [
+        64,
+        64,
+        64
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "bentheimer_01",
+      "source_core_id": "Bentheimer",
+      "split": "test",
+      "origin_xyz": [
+        680,
+        64,
+        680
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "bentheimer_02",
+      "source_core_id": "Bentheimer",
+      "split": "test",
+      "origin_xyz": [
+        64,
+        680,
+        680
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "bentheimer_03",
+      "source_core_id": "Bentheimer",
+      "split": "test",
+      "origin_xyz": [
+        680,
+        680,
+        64
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "parker_00",
+      "source_core_id": "Parker",
+      "split": "test",
+      "origin_xyz": [
+        64,
+        64,
+        64
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "parker_01",
+      "source_core_id": "Parker",
+      "split": "test",
+      "origin_xyz": [
+        680,
+        64,
+        680
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "parker_02",
+      "source_core_id": "Parker",
+      "split": "test",
+      "origin_xyz": [
+        64,
+        680,
+        680
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    },
+    {
+      "crop_id": "parker_03",
+      "source_core_id": "Parker",
+      "split": "test",
+      "origin_xyz": [
+        680,
+        680,
+        64
+      ],
+      "shape_xyz": [
+        256,
+        256,
+        256
+      ],
+      "axis_order": "XYZ",
+      "sparse_axis": "Z",
+      "sampling_factor": 4,
+      "sampling_offset": 0,
+      "voxel_spacing_um_xyz": [
+        2.25,
+        2.25,
+        2.25
+      ]
+    }
+  ]
+}
