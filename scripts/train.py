@@ -6,6 +6,9 @@ import argparse
 import os
 import random
 import sys
+import copy
+import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +33,10 @@ from theme26.training import (
     save_checkpoint,
     train_one_epoch,
     validate_one_epoch,
+    load_checkpoint,
 )
+from theme26.training.directional_cache import CachedRfnDataset, validate_cache
+from theme26.training.workflow import resolve_path, file_hash
 from theme26.training.synthetic import SyntheticAmiDataset, SyntheticRfnDataset
 
 
@@ -40,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument("--epochs", type=int, help="Optional epoch override")
     parser.add_argument("--output-dir", type=Path, help="Optional artifact directory override")
+    parser.add_argument("--resume", type=Path, help="Resume at the next epoch from last.pt")
     return parser
 
 
@@ -116,14 +123,25 @@ def _build_loaders(
 ) -> tuple[DataLoader, DataLoader]:
     data_config = config["data"]
     mode = data_config.get("mode")
-    if mode == "berea_manifest":
+    if mode == "berea_rfn_cache":
+        if stage != "rfn":
+            raise ValueError("berea_rfn_cache requires RFN stage")
+        raw, records, normalization, entries = validate_cache(
+            data_config["source"], resolve_path(data_config["cache_dir"]),
+            resolve_path(data_config["ami_checkpoint"]),
+        )
+        train_dataset = CachedRfnDataset(raw, records, normalization, entries,
+                                        resolve_path(data_config["cache_dir"]), split="train")
+        validation_dataset = CachedRfnDataset(raw, records, normalization, entries,
+                                             resolve_path(data_config["cache_dir"]), split="validation")
+    elif mode == "berea_manifest":
         if stage != "ami":
             raise ValueError("data.mode='berea_manifest' supports only AMI training")
         path_env = str(data_config.get("path_env", "THEME26_GRAYSCALE_RAW"))
         raw_path = os.environ.get(path_env)
         if not raw_path:
             raise RuntimeError(f"set environment variable {path_env} to the grayscale .raw path")
-        protocol_path = Path(data_config.get('protocol_dir', 'config'))
+        protocol_path = Path(data_config.get('protocol_dir', 'configs/data'))
         if not protocol_path.is_absolute():
             protocol_path = REPOSITORY_ROOT / protocol_path
         protocol, normalization_config, evaluation = load_protocol(protocol_path)
@@ -249,7 +267,7 @@ def _build_loaders(
         )
     else:
         raise ValueError(
-            "data.mode must be 'synthetic', 'raw_ami_smoke', or 'berea_manifest'"
+            "data.mode must be synthetic, raw_ami_smoke, berea_manifest, or berea_rfn_cache"
         )
 
     batch_size = int(config["training"].get("batch_size", 1))
@@ -291,6 +309,14 @@ def main() -> None:
     experiment = config["experiment"]
     training = config["training"]
     stage = str(experiment.get("stage", "ami"))
+    if training.get("loss_region", "all") != "all":
+        raise ValueError("E1 protocol uses all-output training L1")
+    if training.get("checkpoint_metric", "primary_mae") != "primary_mae":
+        raise ValueError("E1 best checkpoint must use clipped bracketed-missing MAE")
+    if training.get("epochs") is None and args.epochs is None:
+        raise ValueError("Set epochs after the GPU pilot; this config is an unfilled template")
+    if training.get("batch_size", 1) is None:
+        raise ValueError("Set batch_size after the GPU pilot")
     seed = int(experiment.get("seed", 0))
     _set_seed(seed)
     device = _resolve_device(args.device)
@@ -304,7 +330,7 @@ def main() -> None:
     )
     use_amp = bool(training.get("mixed_precision", True))
     scaler = _make_scaler(use_amp and device.type == "cuda")
-    epochs = args.epochs or int(training.get("epochs", 1))
+    epochs = args.epochs if args.epochs is not None else int(training["epochs"])
     if epochs < 1:
         raise ValueError("epochs must be at least 1")
     output_dir = args.output_dir or Path(
@@ -314,7 +340,51 @@ def main() -> None:
         output_dir = REPOSITORY_ROOT / output_dir
 
     best_validation = float("inf")
-    for epoch in range(1, epochs + 1):
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if not args.resume and any((output_dir / name).exists() for name in ("last.pt", "best.pt", "history.yaml")):
+        raise FileExistsError("run directory already has results; use --resume or a new output directory")
+    def compatible_config(value):
+        value = copy.deepcopy(value)
+        value.pop("output_dir", None)
+        value["training"].pop("epochs", None)
+        return value
+    git_commit = None
+    try:
+        git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPOSITORY_ROOT,
+                                             stderr=subprocess.DEVNULL, text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    metadata = {"git_commit": git_commit, "seed": seed, "device": str(device),
+                "torch_version": str(torch.__version__), "config_file_sha256": file_hash(args.config),
+                "checkpoint_metric": "primary_mae", "metric_range_policy": "clip_0_1"}
+    source_data = config["data"].get("source", config["data"])
+    if source_data.get("mode") == "berea_manifest":
+        from theme26.training.workflow import read_berea_context
+        raw_path, _, _, _, protocol_id = read_berea_context(source_data)
+        metadata.update(source_raw_sha256=file_hash(raw_path), protocol_sha256=protocol_id)
+    start_epoch = 1
+    history = []
+    if args.resume:
+        if args.resume.resolve().parent != output_dir.resolve() or args.resume.name != "last.pt":
+            raise ValueError("resume requires this run directory's last.pt to preserve best checkpoint and history")
+        checkpoint = torch.load(args.resume, map_location="cpu", weights_only=False)
+        if compatible_config(checkpoint["config"]) != compatible_config(config):
+            raise ValueError("resume config differs from checkpoint (only epoch budget/output directory may change)")
+        for key in ("checkpoint_metric", "metric_range_policy", "source_raw_sha256", "protocol_sha256"):
+            if checkpoint.get("run_metadata", {}).get(key) != metadata.get(key):
+                raise ValueError(f"resume identity mismatch: {key}")
+        checkpoint = load_checkpoint(args.resume, model=model, optimizer=optimizer, scaler=scaler,
+                                     restore_rng=True, loader_generator=train_loader.generator)
+        start_epoch = checkpoint["epoch"] + 1
+        best_validation = checkpoint["best_validation_loss"]
+        history = checkpoint.get("run_metadata", {}).get("history", [])
+    if start_epoch > epochs:
+        raise ValueError("epoch budget must exceed the saved epoch; --epochs is the total budget")
+    (output_dir / "resolved_config.yaml").write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    for epoch in range(start_epoch, epochs + 1):
+        started = time.perf_counter()
+        if device.type == "cuda":
+            torch.cuda.reset_peak_memory_stats(device)
         train_result = train_one_epoch(
             model,
             train_loader,
@@ -334,25 +404,42 @@ def main() -> None:
             use_amp=use_amp,
             max_steps=training.get("max_validation_steps"),
         )
+        if validation_result.primary_mae is None:
+            raise ValueError("validation has no bracketed missing voxels; increase pilot validation steps")
+        selected_metric = validation_result.primary_mae
         print(
             f"epoch={epoch:03d} stage={stage} device={device.type} "
             f"train_l1={train_result.loss:.6f} "
-            f"validation_l1={validation_result.loss:.6f}"
+            f"validation_l1={validation_result.loss:.6f} "
+            f"validation_primary_mae={selected_metric:.6f}"
         )
+        improved = selected_metric < best_validation
+        best_validation = min(best_validation, selected_metric)
+        history.append({"epoch": epoch, "train_l1": train_result.loss,
+                        "validation_l1": validation_result.loss, "validation_primary_mae": selected_metric,
+                        "primary_voxels": validation_result.primary_voxels,
+                        "train_steps": train_result.steps, "validation_steps": validation_result.steps,
+                        "elapsed_seconds": time.perf_counter() - started,
+                        "peak_gpu_bytes": torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None})
         checkpoint_kwargs = {
             "model": model,
             "optimizer": optimizer,
             "scaler": scaler,
             "epoch": epoch,
-            "validation_loss": validation_result.loss,
+            "validation_loss": selected_metric,
             "config": config,
+            "best_validation_loss": best_validation,
+            "loader_generator": train_loader.generator,
+            "run_metadata": dict(metadata, history=history),
         }
         save_checkpoint(output_dir / "last.pt", **checkpoint_kwargs)
-        if validation_result.loss < best_validation:
-            best_validation = validation_result.loss
+        if improved:
             save_checkpoint(output_dir / "best.pt", **checkpoint_kwargs)
+        temporary_history = output_dir / "history.yaml.tmp"
+        temporary_history.write_text(yaml.safe_dump(history, sort_keys=False), encoding="utf-8")
+        os.replace(temporary_history, output_dir / "history.yaml")
 
-    print(f"best_validation_l1={best_validation:.6f}")
+    print(f"best_validation_primary_mae={best_validation:.6f}")
     print(f"artifacts={output_dir}")
 
 
