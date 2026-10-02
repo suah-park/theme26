@@ -125,6 +125,10 @@ class DigitalRockAmiDataset(Dataset[dict[str, torch.Tensor]]):
             "input": torch.from_numpy(np.ascontiguousarray(marginal)),
             "target": torch.from_numpy(np.ascontiguousarray(target)),
             "fdm": self._fdm[direction].clone(),
+            "primary_mask": torch.from_numpy(np.ascontiguousarray(
+                self.sample.primary_metric_mask[index] if direction == "sagittal"
+                else self.sample.primary_metric_mask[:, index, :]
+            )).unsqueeze(0),
         }
 
 
@@ -258,4 +262,8 @@ class ManifestAmiDataset(Dataset[dict[str, torch.Tensor]]):
             "input": torch.from_numpy(marginal),
             "target": torch.from_numpy(target),
             "fdm": self._fdm[(record.sampling.factor, direction)].clone(),
+            "primary_mask": torch.from_numpy(np.broadcast_to(
+                np.isin(np.arange(sz), record.sampling.bracketed_missing_indices(sz)),
+                target.shape,
+            ).copy()),
         }

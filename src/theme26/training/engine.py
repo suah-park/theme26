@@ -21,6 +21,8 @@ class EpochResult:
 
     loss: float
     steps: int
+    primary_mae: float | None = None
+    primary_voxels: int = 0
 
 
 def _move_batch(batch: TensorBatch, device: torch.device) -> dict[str, torch.Tensor]:
@@ -74,6 +76,9 @@ def _run_epoch(
     model.train(training)
     amp_enabled = use_amp and device.type == "cuda"
     total_loss = 0.0
+    loss_voxels = 0
+    primary_error = 0.0
+    primary_voxels = 0
     steps = 0
 
     for batch_index, raw_batch in enumerate(loader):
@@ -90,7 +95,8 @@ def _run_epoch(
                 dtype=torch.float16,
                 enabled=amp_enabled,
             ):
-                loss = _e1_loss(model, batch, stage)
+                prediction = _forward_stage(model, batch, stage)
+                loss = masked_l1_loss(prediction, batch["target"], mask=batch.get("mask"))
 
         if not torch.isfinite(loss):
             raise FloatingPointError(f"non-finite {stage} loss at step {batch_index}")
@@ -113,12 +119,23 @@ def _run_epoch(
                     torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_norm)
                 optimizer.step()
 
-        total_loss += float(loss.detach())
+        count = prediction.numel() if "mask" not in batch else int(torch.broadcast_to(batch["mask"], prediction.shape).sum())
+        total_loss += float(loss.detach()) * count
+        loss_voxels += count
+        if "primary_mask" in batch:
+            metric_mask = torch.broadcast_to(batch["primary_mask"], prediction.shape)
+            if metric_mask.dtype != torch.bool:
+                raise TypeError("primary_mask must be bool")
+            metric_error = (prediction.detach().float().clamp(0, 1) - batch["target"].float()).abs()
+            primary_error += float(metric_error.masked_select(metric_mask).sum())
+            primary_voxels += int(metric_mask.sum())
         steps += 1
 
     if steps == 0:
         raise ValueError("loader produced no training or validation steps")
-    return EpochResult(loss=total_loss / steps, steps=steps)
+    return EpochResult(loss=total_loss / loss_voxels, steps=steps,
+                       primary_mae=primary_error / primary_voxels if primary_voxels else None,
+                       primary_voxels=primary_voxels)
 
 
 def train_one_epoch(
