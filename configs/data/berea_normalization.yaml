@@ -1,0 +1,23 @@
+normalization_id: berea-train-xyz-p0.5-p99.5-v2
+status: frozen
+storage_order: XYZ
+split_manifest_version: berea-spatial-xyz-v2
+lower: 2
+upper: 184
+dtype: float32
+output_range:
+- 0.0
+- 1.0
+histogram_voxels: 400000000
+method: train-region uint8 histogram; nearest-rank p0.5/p99.5 clipping and scaling
+train_regions:
+- source_core_id: Berea
+  region_id: berea_train
+  origin_xyz:
+  - 0
+  - 0
+  - 0
+  shape_xyz:
+  - 400
+  - 1000
+  - 1000
