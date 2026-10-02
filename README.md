@@ -79,8 +79,8 @@ tests/           # 합성 데이터 CPU unit tests
 ```
 
 전처리, SAINT forward, L1/gradient 함수와 E1 AMI/RFN 학습 엔진은 구현되어 있습니다.
-실제 Berea는 AMI DataLoader까지 연결되어 있습니다. 실제 AMI 결과를 RFN 학습에 연결하는 단계,
-E2 학습 연결, E3 topology, 최종 infer와 성능 metric은 아직 미구현입니다.
+실제 Berea의 AMI → frozen directional cache → RFN 학습 → 최종 추론·저장 경로가 연결되어 있습니다.
+E2 학습 연결, E3 topology, PSNR/SSIM·위상·물성 지표는 아직 미구현입니다.
 현재 pilot은 작은 모델/1-step 연결 검사 설정이며 본 실험 설정이 아닙니다.
 `TrainRandomCropDataset`은 NumPy `.sample(rng)` sampler입니다. 모델 담당자가 Torch adapter를 연결합니다.
 
@@ -107,14 +107,16 @@ python scripts/train.py --config configs/experiments/e1_ami_berea_pilot.yaml --d
 
 학습은 `configs/data/`의 YAML만 읽으며 split, 정규화, 48/9/9 crop 좌표와 version을 검사합니다.
 옛 ZYX 및 424/456/744 기반 artifact/checkpoint는 이번 XYZ 설정의 결과로 재사용하지 않습니다.
-현재 학습 엔진의 checkpoint 기준은 전체 L1이고 gradient 경계 mask는 양쪽 포함 방식입니다.
-Primary-mask MAE 선택과 observed–missing 경계 정책은 논의 후 별도 변경합니다.
+E1은 AMI/RFN 전체 출력 L1로 학습하고, clipping한 validation primary-mask MAE로 best를 선택합니다.
+Gradient observed–missing 경계 정책은 E2 전에 별도 결정합니다.
 학습 중 loss와 checkpoint 기준을 혼동하지 않습니다.
 
 ## 공통 모델 설정
 
 `configs/model/saint_x4.yaml`의 `ami_target`/`rfn_target`이 문서의 64-channel 목표 모델이다.
 `ami_cpu`/`rfn_cpu`는 8-channel 연결 검사 모델이며 기존 CPU 실행 설정이 이 profile을 참조한다.
-목표 모델의 GPU 실행 config, batch size와 본학습 기간은 아직 확정하지 않았다.
+목표 모델의 GPU pilot과 본학습 YAML 템플릿이 있습니다. 본학습 batch size·기간은 GPU pilot 후 결정하며 템플릿에는 null로 남깁니다.
 YAML에서 `model.settings`와 `model.profile`을 선택하면 학습 코드가 공통 설정을 읽고,
 checkpoint에는 profile 경로와 실제 적용된 모델 값을 함께 저장한다.
+
+단계별 실행, cache, resume, 추론 저장과 Slurm 준비는 [E1 실행 안내](docs/e1_execution.md)를 따릅니다.
