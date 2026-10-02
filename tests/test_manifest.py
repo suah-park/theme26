@@ -33,7 +33,7 @@ def _record(sample_id: str, split: str, origin_x: int) -> CropRecord:
 class ManifestTests(unittest.TestCase):
     def test_frozen_berea_manifest(self) -> None:
         records = read_crop_manifest(
-            REPOSITORY_ROOT / "configs/data/berea_spatial_split_v1.csv"
+            REPOSITORY_ROOT / "configs/data/berea_crops.yaml"
         )
         validate_spatial_split(
             records,
@@ -45,13 +45,13 @@ class ManifestTests(unittest.TestCase):
             for split in ("train", "validation", "test")
         }
         self.assertEqual(counts, {"train": 48, "validation": 9, "test": 9})
-        config, normalization, evaluation = load_protocol(REPOSITORY_ROOT / 'config')
+        config, normalization, evaluation = load_protocol(REPOSITORY_ROOT / 'configs/data')
         validate_protocol_records(records, config, evaluation)
 
     def test_old_manifest_version_and_changed_eval_coordinates_are_rejected(self):
         from dataclasses import replace
-        records = read_crop_manifest(REPOSITORY_ROOT / 'configs/data/berea_spatial_split_v1.csv')
-        config, _, evaluation = load_protocol(REPOSITORY_ROOT / 'config')
+        records = read_crop_manifest(REPOSITORY_ROOT / 'configs/data/berea_crops.yaml')
+        config, _, evaluation = load_protocol(REPOSITORY_ROOT / 'configs/data')
         stale = (replace(records[0], manifest_version='old-zyx'), *records[1:])
         with self.assertRaisesRegex(ValueError, 'stale'):
             validate_protocol_records(stale, config, evaluation)
@@ -70,7 +70,7 @@ class ManifestTests(unittest.TestCase):
             records, volume_shape_xyz=(16, 4, 4), minimum_buffer_voxels=2
         )
         with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "manifest.csv"
+            path = Path(directory) / "manifest.yaml"
             write_crop_manifest(path, records)
             self.assertEqual(read_crop_manifest(path), records)
 

@@ -10,8 +10,8 @@ model:
 data:
   mode: berea_manifest
   path_env: THEME26_GRAYSCALE_RAW
-  manifest: configs/data/berea_spatial_split_v1.csv
-  protocol_dir: config
+  manifest: configs/data/berea_crops.yaml
+  protocol_dir: configs/data
   minimum_buffer_voxels: 32
   metadata:
     sample_id: berea

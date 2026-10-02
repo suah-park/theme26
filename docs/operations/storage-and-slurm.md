@@ -59,10 +59,12 @@ set -euo pipefail
 cd /project/<group>/theme26
 
 /project/<group>/envs/theme26/bin/python scripts/train.py \
-  --config config/e1_saint_l1.yaml
+  --config configs/experiments/e1_ami_target.yaml
 ```
 
-Only the partition name, GPU request syntax and `/project/<group>` path are cluster-specific. Some clusters use `--gpus=1` or a model-specific partition instead of `--gres=gpu:1`.
+`e1_ami_target.yaml`은 GPU memory probe 뒤에 확정할 본학습 설정 파일명입니다. Pilot/smoke
+설정을 본학습에 사용하지 않습니다. Partition name, GPU request syntax와
+`/project/<group>` path는 cluster에 맞춰 수정합니다.
 
 ## GPU check
 

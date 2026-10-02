@@ -88,7 +88,7 @@ Unused:     X=[976,1000)
 - Train crop seed: 2026
 - Validation/test YZ origin grid: `(0, 372, 744) × (0, 372, 744)`
 - Train crop끼리는 겹칠 수 있지만 서로 다른 split의 crop은 겹치지 않습니다.
-- 고정 manifest: `configs/data/berea_spatial_split_v1.csv`
+- 고정 manifest: `configs/data/berea_crops.yaml`
 - Manifest version: `berea-spatial-xyz-v2`
 - 통계적 표본 단위는 voxel이나 slice가 아니라 사전 등록된 3D block입니다.
 
@@ -115,7 +115,7 @@ I_clipped = clip(I_raw, 2, 184)
 I_model   = (I_clipped - 2) / (184 - 2)
 ```
 
-정규화 기준 파일은 `config/normalization.json`입니다. `configs/data/berea_normalization_v1.yaml`은 같은 통계에서 생성한 호환 출력입니다. 모든 split과 E0–E3에 같은 값을 적용하며 개별 crop 또는 test data에 맞춰 다시 계산하지 않습니다.
+정규화 기준 파일은 `configs/data/berea_normalization.yaml`입니다. 모든 split과 E0–E3에 같은 값을 적용하며 개별 crop 또는 test data에 맞춰 다시 계산하지 않습니다.
 
 ### 2.5 Sparse-z sampling
 
@@ -431,7 +431,7 @@ Solver와 상세 boundary condition은 아직 동결되지 않았습니다.
 ```
 
 - Raw data, checkpoint, full prediction, solver output은 Git에 올리지 않습니다.
-- Code, YAML config, manifest와 작은 CSV 결과만 Git으로 공유합니다.
+- Code, YAML config와 작은 평가 결과만 Git으로 공유합니다.
 - GPU: 1장 사용 예정
 - GPU model/VRAM, Slurm partition, CPU/RAM, wall time은 계정 발급 후 확인합니다.
 - 서버에서는 `THEME26_GRAYSCALE_RAW` 환경 변수로 raw 경로를 전달합니다.
@@ -472,7 +472,7 @@ solver_name_and_version
 
 - Raw uint8 file-size/dtype/endianness 검사와 memory mapping
 - RAW 직접 C-order XYZ 해석; 전처리와 학습의 축 동일
-- Train-only normalization JSON과 같은 결과에서 생성한 호환 YAML
+- Train-only normalization YAML
 - Aligned grayscale/binary crop 함수
 - Berea spatial manifest 생성·읽기·cross-split leakage 검사
 - x4 sparse sampling, observed/missing/primary mask
@@ -518,14 +518,14 @@ PowerShell:
 
 ```powershell
 $env:THEME26_GRAYSCALE_RAW = "C:\path\to\Berea_2d25um_grayscale_filtered.raw"
-python scripts/train.py --config configs/e1_ami_berea_pilot.yaml --device cpu
+python scripts/train.py --config configs/experiments/e1_ami_berea_pilot.yaml --device cpu
 ```
 
 Linux/Slurm login node:
 
 ```bash
 export THEME26_GRAYSCALE_RAW=/project/<group>/data/11_sandstones/raw/Berea_2d25um_grayscale_filtered.raw
-python scripts/train.py --config configs/e1_ami_berea_pilot.yaml --device cpu
+python scripts/train.py --config configs/experiments/e1_ami_berea_pilot.yaml --device cpu
 ```
 
 ### 10.2 GPU 확인 후 pilot
@@ -555,7 +555,7 @@ GPU pilot config와 `slurm/train_e1.sbatch`은 실제 cluster 정보와 VRAM을 
 ## 12. 최신 통합 설정의 적용 범위
 
 - 최신 합의(직접 XYZ 해석)가 이전 문서의 ZYX 변환보다 우선한다.
-- JSON 구역/정규화/평가 좌표에서 학습 CSV와 호환 YAML을 생성하고, 학습 시작 시 CSV 일치를 검사한다.
+- `configs/data/`의 YAML 구역·정규화·crop 좌표를 학습 시작 시 함께 검사한다.
 - 실제 Berea train 4억 voxel의 직접 XYZ 정규화는 2/184이며 평가 crop 18개 QC와 AMI DataLoader 값 일치를 확인했다.
 - 모델 구조는 공통 YAML로 통일했지만 CPU 검증 모델을 본 모델로 바꾸지 않았다.
 - Checkpoint primary-mask MAE 선택은 목표 규칙이며 현재 전체 L1 선택과 구분한다.

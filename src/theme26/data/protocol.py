@@ -1,9 +1,14 @@
 """Berea spatial split, train-only statistics, and artifact provenance."""
 from __future__ import annotations
-import json
 from pathlib import Path
 import numpy as np
+import yaml
 from theme26.contracts import CropSpec
+
+
+SPLIT_FILENAME = "berea_split.yaml"
+NORMALIZATION_FILENAME = "berea_normalization.yaml"
+EVALUATION_FILENAME = "berea_eval_crops.yaml"
 
 
 def default_split() -> dict:
@@ -115,13 +120,22 @@ def eval_manifest(config: dict, normalization: dict) -> dict:
             'normalization_id':normalization['normalization_id'],'crops':crops}
 
 
-def load_protocol(config_dir: Path) -> tuple[dict,dict,dict]:
-    split = json.loads((config_dir/'splits.json').read_text(encoding='utf-8'))
-    norm = json.loads((config_dir/'normalization.json').read_text(encoding='utf-8'))
-    manifest = json.loads((config_dir/'eval_crop_manifest.json').read_text(encoding='utf-8'))
+def _read_yaml_mapping(path: Path) -> dict:
+    value = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path}: expected a YAML mapping")
+    return value
+
+
+def load_protocol(config_dir: Path) -> tuple[dict, dict, dict]:
+    """Load the three canonical Berea YAML files from ``configs/data``."""
+
+    split = _read_yaml_mapping(config_dir / SPLIT_FILENAME)
+    norm = _read_yaml_mapping(config_dir / NORMALIZATION_FILENAME)
+    manifest = _read_yaml_mapping(config_dir / EVALUATION_FILENAME)
     validate_split(split)
     if norm.get('status') != 'frozen' or norm.get('lower') is None or norm.get('upper') is None:
-        raise ValueError('normalization is not frozen; run scripts/freeze_berea_protocol.py first')
+        raise ValueError('normalization is not frozen in configs/data/berea_normalization.yaml')
     if not np.isfinite([norm['lower'],norm['upper']]).all() or norm['lower'] >= norm['upper']:
         raise ValueError('invalid normalization bounds')
     if manifest != eval_manifest(split,norm) or norm.get('split_manifest_version') != split['manifest_version']:

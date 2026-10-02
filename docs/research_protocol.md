@@ -403,7 +403,7 @@ Same-core held-out region 성능만 평가하고 unseen-core 일반화를 주장
 
 ### Integration status
 
-Train crop은 seed 2026으로 만든 고정 48개를 CSV에 기록한다. 평가 crop은 각 9개다.
+Train crop은 seed 2026으로 만든 고정 48개를 `configs/data/berea_crops.yaml`에 기록한다. 평가 crop은 각 9개다.
 RAW는 모든 경로에서 C-order XYZ로 직접 해석한다. [976,1000) 구역은 사용하지 않는다.
 현 E1 pilot은 전체 L1으로 checkpoint를 선택한다. 위 primary-mask 선택 규칙은 아직 미연결이다.
 Gradient mask의 양쪽 voxel 포함 정책은 그대로 유지했으며 경계 정책은 별도 결정한다.
