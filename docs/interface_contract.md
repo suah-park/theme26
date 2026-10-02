@@ -30,7 +30,7 @@ Coronal plane:      fixed Y -> [X, Z]
 Axial plane:        fixed Z -> [X, Y]
 ```
 
-PyTorch `Conv3d`가 차원을 `[D,H,W]`라고 부르더라도 이 프로젝트에서는 그 세 공간 차원의 의미를 `[X,Y,Z]`로 해석한다. loader가 다른 순서를 반환하면 loader에서 한 번만 transpose하고 metadata에 기록한다.
+PyTorch `Conv3d`가 차원을 `[D,H,W]`라고 부르더라도 이 프로젝트에서는 그 세 공간 차원의 의미를 `[X,Y,Z]`로 해석한다. RAW는 C-order XYZ 배열로 직접 읽고 축을 transpose하지 않는다.
 
 ### 2.2 Shape
 
