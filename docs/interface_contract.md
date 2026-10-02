@@ -8,7 +8,7 @@
 
 | 담당 | 소유 경로 | 책임 |
 |---|---|---|
-| 모델·통합·GPU 담당 | `src/theme26/models/saint/`, `scripts/train.py`, `scripts/infer.py`, `config/`, `slurm/` | SAINT, 학습, 추론, GPU 실행, 최종 병합 |
+| 모델·통합·GPU 담당 | `src/theme26/models/saint/`, `src/theme26/training/`, `scripts/train.py`, `scripts/infer.py` | SAINT, 학습, 추론, GPU 실행, 최종 병합 |
 | 데이터 담당 | `src/theme26/data/` | raw loading, normalization, aligned crop, x4 sampling, E0 |
 | loss 담당 | `src/theme26/losses/` | L1, gradient, soft Dice, 3D soft-clDice |
 | 평가 담당 | `src/theme26/evaluation/` | image, topology, physics metrics와 CSV export |
@@ -204,7 +204,7 @@ compute_physics_metrics(predicted_pore, target_pore, *, spacing_um_xyz,
 
 ## 6. 아직 config로 동결할 값
 
-다음 항목은 API를 바꾸지 않고 config/manifest로 동결한다.
+다음 항목은 API를 바꾸지 않고 `configs/`의 YAML로 동결한다.
 
 - Berea train/validation/test 공간 범위 및 buffer
 - training-only normalization lower/upper와 `normalization_id`
@@ -233,7 +233,7 @@ GPU 담당자는 병합 후 실제 데이터 one-batch overfit 및 full-volume s
 
 ## 8. Berea spatial protocol extension
 
-`config/splits.json`은 동일 Berea core의 서로 겹치지 않는 region_origin_xyz/region_shape_xyz를
+`configs/data/berea_split.yaml`은 동일 Berea core의 서로 겹치지 않는 region_origin_xyz/region_shape_xyz를
 각 split에 기록한다. 좌표 끝은 제외한다. `CoreSource.region`은 crop 허용 범위이며
 `TrainRandomCropDataset`은 명시적인 train region 없이는 사용할 수 없다.
 `preprocess_crop`은 ROI 밖 crop을 거부한다. 기본 crop/SamplingSpec 공개 API는 유지한다.
@@ -246,4 +246,4 @@ Source audit와 empty-phase 물성 평가 정책은 별개이다.
 
 `VolumeMetadata.storage_order="XYZ"`만 허용하며 C-order로 직접 읽는다.
 전처리와 학습이 같은 좌표를 사용하고 축 transpose는 하지 않는다.
-`config/` JSON이 구역/정규화/평가 좌표의 기준이다. Training CSV는 그 설정에서 생성한다.
+`configs/data/` YAML이 구역, 정규화, train/validation/test crop 좌표의 유일한 기준이다.

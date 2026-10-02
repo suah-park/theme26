@@ -62,5 +62,5 @@ Validation/test는 manifest entry와 동일 split/region의 `source_from_entry`�
 RAW의 직접 XYZ 해석과 train dense 구역 확보 비용은 연구 보고에 명시한다.
 같은 core의 공간 구역 평가이므로 새로운 core에 대한 일반화 성능을 주장하지 않는다.
 
-실제 E1 AMI 연결은 `training.ManifestAmiDataset`이 frozen CSV를 읽는다.
+실제 E1 AMI 연결은 `training.ManifestAmiDataset`이 `configs/data/berea_crops.yaml`의 고정 crop을 읽는다.
 범용 `TrainRandomCropDataset`은 구역 내 임의 crop 생성 API이며 frozen 48개 학습 경로와 구분한다.
