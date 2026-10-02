@@ -1,0 +1,25 @@
+experiment:
+  id: e1_rfn_smoke
+  stage: rfn
+  seed: 0
+
+model:
+  settings: configs/model/saint_x4.yaml
+  profile: rfn_cpu
+
+data:
+  mode: synthetic
+  train_samples: 8
+  validation_samples: 4
+  x_size: 16
+  y_size: 16
+
+training:
+  epochs: 3
+  batch_size: 2
+  learning_rate: 0.001
+  weight_decay: 0.0
+  mixed_precision: false
+  gradient_clip_norm: 1.0
+
+output_dir: runs/e1_rfn_smoke
