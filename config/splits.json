@@ -1,7 +1,8 @@
 {
-  "manifest_version": "berea-spatial-v1",
+  "manifest_version": "berea-spatial-xyz-v2",
   "split_mode": "within-core-spatial",
   "axis_order": "XYZ",
+  "storage_order": "XYZ",
   "source_shape_xyz": [
     1000,
     1000,
@@ -34,7 +35,7 @@
           0
         ],
         "region_shape_xyz": [
-          424,
+          400,
           1000,
           1000
         ]
@@ -48,7 +49,7 @@
         "binary_filename": "Berea_2d25um_binary.raw",
         "source_pore_value": 0,
         "region_origin_xyz": [
-          456,
+          432,
           0,
           0
         ],
@@ -67,7 +68,7 @@
         "binary_filename": "Berea_2d25um_binary.raw",
         "source_pore_value": 0,
         "region_origin_xyz": [
-          744,
+          720,
           0,
           0
         ],

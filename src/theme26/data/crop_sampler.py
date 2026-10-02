@@ -63,3 +63,14 @@ def sample_training_crop(
     crop = CropSpec(origin_xyz=origin, shape_xyz=tuple(int(size) for size in crop_shape_xyz))
     gray_crop, binary_crop = extract_aligned_crop(grayscale, binary, crop=crop)
     return gray_crop, binary_crop, crop
+
+
+def extract_volume_crop(volume, *, crop: CropSpec):
+    """Copy one XYZ crop without loading the whole RAW into RAM."""
+    array = np.asarray(volume)
+    if array.ndim != 3:
+        raise ValueError('volume must be 3D [X,Y,Z]')
+    crop.validate_inside(tuple(array.shape))
+    x,y,z = crop.origin_xyz
+    sx,sy,sz = crop.shape_xyz
+    return array[x:x+sx,y:y+sy,z:z+sz].copy()

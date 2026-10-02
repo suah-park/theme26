@@ -10,7 +10,7 @@ dependencies = ["numpy>=1.24,<3"]
 
 [project.optional-dependencies]
 plots = ["matplotlib>=3.7"]
-training = ["torch>=2"]
+training = ["torch>=2.1", "PyYAML>=6.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

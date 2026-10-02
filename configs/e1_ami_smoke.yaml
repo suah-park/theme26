@@ -1,0 +1,26 @@
+experiment:
+  id: e1_ami_smoke
+  stage: ami
+  seed: 0
+
+model:
+  settings: configs/model/saint_x4.yaml
+  profile: ami_cpu
+
+data:
+  mode: synthetic
+  train_samples: 8
+  validation_samples: 4
+  length: 16
+  z_lr: 8
+  spacing_um_xyz: [2.25, 2.25, 2.25]
+
+training:
+  epochs: 3
+  batch_size: 2
+  learning_rate: 0.001
+  weight_decay: 0.0
+  mixed_precision: false
+  gradient_clip_norm: 1.0
+
+output_dir: runs/e1_ami_smoke

@@ -1,0 +1,28 @@
+# Shared architecture profiles. CPU profiles only validate the pipeline.
+profiles:
+  ami_target:
+    factor: 4
+    feature_channels: 64
+    kernel_size: 3
+    num_blocks: 6
+    layers_per_block: 8
+    growth_rate: 32
+  rfn_target:
+    feature_channels: 64
+    kernel_size: 3
+    num_blocks: 4
+    layers_per_block: 6
+    growth_rate: 12
+  ami_cpu:
+    factor: 4
+    feature_channels: 8
+    kernel_size: 3
+    num_blocks: 1
+    layers_per_block: 2
+    growth_rate: 4
+  rfn_cpu:
+    feature_channels: 8
+    kernel_size: 3
+    num_blocks: 1
+    layers_per_block: 2
+    growth_rate: 4

@@ -11,15 +11,15 @@ Binary는 grayscale 입력/정답이 아니라 E3 topology와 평가 reference�
 
 | Split | X 범위 | Y/Z 범위 | 사용 |
 |---|---|---|---|
-| Train | `[0,424)` | `[0,1000)` | 구역 내부 랜덤 crop, 정규화 통계 |
-| Buffer | `[424,456)` | 전체 | 사용하지 않음 |
-| Validation | `[456,712)` | `[0,1000)` | 고정 crop 4개, 모델 선택 |
-| Buffer | `[712,744)` | 전체 | 사용하지 않음 |
-| Test | `[744,1000)` | `[0,1000)` | 고정 crop 4개, 최종 평가 |
+| Train | `[0,400)` | `[0,1000)` | 고정 seed로 만든 48개 crop, 정규화 통계 |
+| Buffer | `[400,432)` | 전체 | 사용하지 않음 |
+| Validation | `[432,688)` | `[0,1000)` | 고정 crop 9개, 모델 선택 |
+| Buffer | `[688,720)` | 전체 | 사용하지 않음 |
+| Test | `[720,976)` | `[0,1000)` | 고정 crop 9개, 최종 평가 |
 
-각 평가 slab에서 Y/Z 시작 좌표는 `(64,64),(680,64),(64,680),(680,680)`입니다.
+각 평가 slab에서 Y/Z 시작 좌표는 `{0,372,744} × {0,372,744}`입니다.
 32-voxel buffer는 초기 설계 값이며 공간적 독립성을 보장한다고 주장하지 않습니다.
-원본 RAW의 XYZ 저장 순서는 데이터 metadata와 시각 검사로 확인해야 합니다.
+RAW는 C-order XYZ로 직접 해석하며 축을 transpose하지 않습니다. 물성의 Z는 이 좌표계의 Z입니다.
 
 ## 데이터와 설치
 
@@ -34,7 +34,7 @@ Binary는 grayscale 입력/정답이 아니라 E3 topology와 평가 reference�
 ```bash
 python -m pip install -e .
 # 시각 QC가 필요하면: python -m pip install -e '.[plots]'
-# 모델 구현·학습 환경에는: python -m pip install -e '.[training]'
+# 모델·학습 환경에는: python -m pip install -e '.[training]'
 ```
 
 ## 전처리와 검증 실행
@@ -53,7 +53,7 @@ PowerShell에서는 `$env:PYTHONPATH='src'`를 먼저 실행합니다.
 기존 `freeze_11_sandstones_protocol.py`는 Berea 전용 명령의 호환 alias입니다.
 
 정규화는 train 구역만의 histogram으로 p0.5/p99.5를 계산하고 모든 split에 같은 값을 적용합니다.
-현재 구역과 제공된 Berea에서 계산한 값은 `2/184`, train voxel 수는 424,000,000입니다.
+현재 구역과 제공된 Berea에서 계산한 값은 `2/184`, train voxel 수는 400,000,000입니다.
 파일 또는 구역을 바꾸면 freeze를 다시 실행해야 합니다. 예전 8-core 기준 `2/206`은 사용하지 않습니다.
 Source binary의 pore 값은 0이며 내부 mask에서는 `True=pore`입니다.
 
@@ -61,7 +61,7 @@ Source binary의 pore 값은 0이며 내부 mask에서는 `True=pore`입니다.
 
 `tests/`는 작은 NumPy 배열과 임시 RAW 파일로 구현을 검증합니다. 실제 Berea가 없어도 실행됩니다.
 공간 경계, split 겹침, train-only 통계, 재현성, 단일 상 crop, 잘못된 artifact도 검사합니다.
-연구 test 구역은 실제 Berea `[744,1000)`이며 학습한 모델의 최종 성능 평가에 사용합니다.
+연구 test 구역은 실제 Berea `[720,976)`이며 학습한 모델의 최종 성능 평가에 사용합니다.
 전처리 QC PASS는 데이터 형식/정렬/보간 검증이며 학습 성능이나 복원 품질 결과가 아닙니다.
 
 ## 코드 구조와 진행 상태
@@ -70,15 +70,19 @@ Source binary의 pore 값은 0이며 내부 mask에서는 `True=pore`입니다.
 src/theme26/
   contracts.py
   data/          # RAW, crop, sampler, spatial protocol, numeric QC
-  models/saint/  # 모델 스켈레톤
-  losses/        # loss 스켈레톤
+  models/saint/  # AMI, FDM, dynamic filter, RFN, 전체 forward
+  losses/        # L1/gradient 구현, topology 스켈레톤
   evaluation/    # metric 스켈레톤
-scripts/         # 전처리·QC 실행, train/infer 스켈레톤
-config/          # spatial split, normalization, fixed eval crops
+scripts/         # 전처리·QC·E1 학습, infer 스켈레톤
+config/          # canonical spatial split, normalization, fixed eval crops
+configs/         # E1 YAML 실행 설정과 canonical 설정에서 생성한 CSV/YAML
 tests/           # 합성 데이터 CPU unit tests
 ```
 
-전처리는 구현되어 있지만 SAINT, 학습/추론, loss와 성능 metric은 아직 미구현입니다.
+전처리, SAINT forward, L1/gradient 함수와 E1 AMI/RFN 학습 엔진은 구현되어 있습니다.
+실제 Berea는 AMI DataLoader까지 연결되어 있습니다. 실제 AMI 결과를 RFN 학습에 연결하는 단계,
+E2 학습 연결, E3 topology, 최종 infer와 성능 metric은 아직 미구현입니다.
+현재 pilot은 작은 모델/1-step 연결 검사 설정이며 본 실험 설정이 아닙니다.
 `TrainRandomCropDataset`은 NumPy `.sample(rng)` sampler입니다. 모델 담당자가 Torch adapter를 연결합니다.
 
 E0=linear interpolation, E1=SAINT L1, E2=L1+0.1 gradient,
@@ -88,8 +92,32 @@ tail z=253..255은 boundary diagnostic입니다. 최종 volume에 observed slice
 
 ## 문서·출처
 
+- [실험·모델 설정 통합본](docs/experiment_model_settings.md)
 - [연구 프로토콜](docs/research_protocol.md)
 - [인터페이스](docs/interface_contract.md)
 - [전처리 인계](docs/data_handoff.md)
 - [데이터](https://digitalporousmedia.org/datasets/317/) / DOI 10.17612/F4H1-W124 / ODC-By 1.0
 - [SAINT 원본](https://github.com/cpeng93/SAINT)
+
+## 통합된 E1 연결
+
+```powershell
+$env:THEME26_GRAYSCALE_RAW = 'C:\path\to\Berea_2d25um_grayscale_filtered.raw'
+python scripts/train.py --config configs/e1_ami_berea_pilot.yaml --device cpu
+```
+
+학습은 `config/` JSON을 읽고 CSV의 모든 구역·평가 좌표·버전을 검사합니다.
+Freeze는 `configs/data/`의 48/9/9 CSV와 호환 YAML도 같은 결과에서 생성합니다.
+옛 ZYX 및 424/456/744 기반 artifact/checkpoint는 이번 XYZ 설정의 결과로 재사용하지 않습니다.
+소스 파일 이름의 v1은 호환 경로이며 실제 protocol/normalization ID는 XYZ v2입니다.
+현재 학습 엔진의 checkpoint 기준은 전체 L1이고 gradient 경계 mask는 양쪽 포함 방식입니다.
+Primary-mask MAE 선택과 observed–missing 경계 정책은 논의 후 별도 변경합니다.
+학습 중 loss와 checkpoint 기준을 혼동하지 않습니다.
+
+## 공통 모델 설정
+
+`configs/model/saint_x4.yaml`의 `ami_target`/`rfn_target`이 문서의 64-channel 목표 모델이다.
+`ami_cpu`/`rfn_cpu`는 8-channel 연결 검사 모델이며 기존 CPU 실행 설정이 이 profile을 참조한다.
+목표 모델의 GPU 실행 config, batch size와 본학습 기간은 아직 확정하지 않았다.
+YAML에서 `model.settings`와 `model.profile`을 선택하면 학습 코드가 공통 설정을 읽고,
+checkpoint에는 profile 경로와 실제 적용된 모델 값을 함께 저장한다.

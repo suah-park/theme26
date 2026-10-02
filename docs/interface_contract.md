@@ -30,7 +30,7 @@ Coronal plane:      fixed Y -> [X, Z]
 Axial plane:        fixed Z -> [X, Y]
 ```
 
-PyTorch `Conv3d`가 차원을 `[D,H,W]`라고 부르더라도 이 프로젝트에서는 그 세 공간 차원의 의미를 `[X,Y,Z]`로 해석한다. loader가 다른 순서를 반환하면 loader에서 한 번만 transpose하고 metadata에 기록한다.
+PyTorch `Conv3d`가 차원을 `[D,H,W]`라고 부르더라도 이 프로젝트에서는 그 세 공간 차원의 의미를 `[X,Y,Z]`로 해석한다. RAW는 C-order XYZ 배열로 직접 읽고 축을 transpose하지 않는다.
 
 ### 2.2 Shape
 
@@ -241,3 +241,9 @@ GPU 담당자는 병합 후 실제 데이터 one-batch overfit 및 full-volume s
 sample에 `region_id`, `normalization_id`, `voxel_spacing_um_xyz`를 보존한다.
 단일 상 crop은 binary label의 허용 집합 {0,1} 내에 있으면 전처리한다.
 Source audit와 empty-phase 물성 평가 정책은 별개이다.
+
+### RAW interpretation
+
+`VolumeMetadata.storage_order="XYZ"`만 허용하며 C-order로 직접 읽는다.
+전처리와 학습이 같은 좌표를 사용하고 축 transpose는 하지 않는다.
+`config/` JSON이 구역/정규화/평가 좌표의 기준이다. Training CSV는 그 설정에서 생성한다.

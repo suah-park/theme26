@@ -60,12 +60,10 @@ def read_raw_volume(path: str | Path, *, metadata: VolumeMetadata) -> npt.NDArra
             f"for shape={metadata.shape_xyz}, dtype={dtype}; found {actual_bytes}"
         )
 
-    # The metadata axis order is canonical XYZ; C-order reshape maps the
-    # contiguous raw sequence to [X,Y,Z].  A source with another storage order
-    # must be transposed once before its metadata is registered as XYZ.
-    return np.fromfile(raw_path, dtype=dtype, count=int(np.prod(metadata.shape_xyz))).reshape(
-        metadata.shape_xyz, order="C"
-    )
+    if metadata.storage_order != 'XYZ':
+        raise ValueError('RAW storage_order must be XYZ; this protocol does not transpose axes')
+    return np.memmap(raw_path, dtype=dtype, mode='r', shape=metadata.shape_xyz, order='C')
+
 
 
 def normalize_grayscale(
