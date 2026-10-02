@@ -74,12 +74,12 @@ x4 sparse-z 입력으로 복원한다. 새로운 core 일반화는 이번 주 �
 
 | Split | X (끝 제외) | Y/Z | Crop |
 |---|---|---|---|
-| Train | [0,424) | [0,1000) | train 구역 내 random 256³ |
-| Validation | [456,712) | [0,1000) | 고정 4개 |
-| Test | [744,1000) | [0,1000) | 고정 4개 |
+| Train | [0,400) | [0,1000) | train 구역 내 random 256³ |
+| Validation | [432,688) | [0,1000) | 고정 9개 |
+| Test | [720,976) | [0,1000) | 고정 9개 |
 
 구역 사이 32-voxel buffer는 사용하지 않는다. 이 값은 초기 설계이며 공간적 독립성의 증거가 아니다.
-평가 Y/Z origins는 (64,64),(680,64),(64,680),(680,680)이고 각 split의 X 시작에 배치한다.
+평가 Y/Z origins는 {0,372,744} × {0,372,744}이고 각 split의 X 시작에 배치한다.
 먼저 구역을 분리한 뒤 그 안에 완전히 포함되는 crop만 생성한다.
 Validation/test의 dense grayscale은 선택/평가 정답으로만 사용하고 모델 입력은 sparse다.
 Split·평가 좌표·offset은 성능 결과 확인 전에 고정하며 seed마다 변경하지 않는다.
@@ -400,3 +400,10 @@ Same-core held-out region 성능만 평가하고 unseen-core 일반화를 주장
 - PSNR 향상이 permeability 정확도를 보장한다.
 - 비교하지 않은 모든 방법보다 우수하다.
 - Synthetic sparse sampling이 실제 저해상도 촬영을 완전히 재현한다.
+
+### Integration status
+
+Train crop은 seed 2026으로 만든 고정 48개를 CSV에 기록한다. 평가 crop은 각 9개다.
+RAW는 모든 경로에서 C-order XYZ로 직접 해석한다. [976,1000) 구역은 사용하지 않는다.
+현 E1 pilot은 전체 L1으로 checkpoint를 선택한다. 위 primary-mask 선택 규칙은 아직 미연결이다.
+Gradient mask의 양쪽 voxel 포함 정책은 그대로 유지했으며 경계 정책은 별도 결정한다.

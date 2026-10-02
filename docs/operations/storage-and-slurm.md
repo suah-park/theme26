@@ -111,6 +111,7 @@ Before an E3 headline job, also verify grayscale/binary alignment and pore polar
 
 Only Berea grayscale_filtered/binary RAW files are required for the primary experiment.
 Run `freeze_berea_protocol.py` on the configured train ROI, then `qc_fixed_eval_crops.py`.
-The training YAML and trainer/model/loss/metric implementation are still pending.
+The E1 training YAML, AMI/RFN model, L1/gradient functions and E1 engine are implemented.
+Real Berea connects to AMI only; real RFN inputs, E2/E3, frozen inference and metrics remain pending.
 The Slurm command above is a template and cannot start a complete experiment yet.
-Install the project (`pip install -e .`) or set PYTHONPATH=src before running scripts.
+Install the training extra (`pip install -e '.[training]'`) before running training scripts.

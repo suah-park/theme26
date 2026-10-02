@@ -8,10 +8,10 @@ from theme26.contracts import CropSpec
 
 def default_split() -> dict:
     """Half-open XYZ regions; 32-voxel gaps are a fixed design choice."""
-    regions = {'train': (0, 424), 'validation': (456, 712), 'test': (744, 1000)}
+    regions = {'train': (0, 400), 'validation': (432, 688), 'test': (720, 976)}
     return {
-        'manifest_version': 'berea-spatial-v1', 'split_mode': 'within-core-spatial',
-        'axis_order': 'XYZ', 'source_shape_xyz': [1000, 1000, 1000],
+        'manifest_version': 'berea-spatial-xyz-v2', 'split_mode': 'within-core-spatial',
+        'axis_order': 'XYZ', 'storage_order': 'XYZ', 'source_shape_xyz': [1000, 1000, 1000],
         'dtype': 'uint8', 'endianness': 'not-applicable',
         'voxel_spacing_um_xyz': [2.25, 2.25, 2.25], 'buffer_voxels_x': 32,
         'crop_shape_xyz': [256, 256, 256],
@@ -33,7 +33,7 @@ def contains(region: CropSpec, crop: CropSpec) -> bool:
 
 
 def validate_split(config: dict) -> None:
-    if config.get('split_mode') != 'within-core-spatial' or config.get('axis_order') != 'XYZ':
+    if config.get('split_mode') != 'within-core-spatial' or config.get('axis_order') != 'XYZ' or config.get('storage_order') != 'XYZ':
         raise ValueError('expected a within-core-spatial XYZ split')
     entries = []
     for split in ('train', 'validation', 'test'):
@@ -88,7 +88,7 @@ def fit_normalization(config: dict, data_root: Path, *, chunk_x: int = 16) -> di
     lower,upper = percentile(.5),percentile(99.5)
     if lower >= upper:
         raise ValueError('train region has degenerate normalization bounds')
-    return {'normalization_id':'berea-train-region-p0.5-p99.5-v1','status':'frozen',
+    return {'normalization_id':'berea-train-xyz-p0.5-p99.5-v2','status':'frozen','storage_order':'XYZ',
             'split_manifest_version':config['manifest_version'], 'lower':lower,'upper':upper,
             'dtype':'float32','output_range':[0.,1.], 'histogram_voxels':count,
             'method':'train-region uint8 histogram; nearest-rank p0.5/p99.5 clipping and scaling',
@@ -102,7 +102,7 @@ def eval_manifest(config: dict, normalization: dict) -> dict:
     for split in ('validation','test'):
         for entry in config['splits'][split]:
             roi = region_spec(entry)
-            for i,(dy,dz) in enumerate(((64,64),(680,64),(64,680),(680,680))):
+            for i,(dy,dz) in enumerate((y,z) for y in (0,372,744) for z in (0,372,744)):
                 crop = CropSpec((roi.origin_xyz[0],roi.origin_xyz[1]+dy,roi.origin_xyz[2]+dz),size)
                 if not contains(roi,crop):
                     raise ValueError('fixed evaluation crop exceeds region')
@@ -111,7 +111,7 @@ def eval_manifest(config: dict, normalization: dict) -> dict:
                               'origin_xyz':list(crop.origin_xyz),'shape_xyz':list(size),
                               'axis_order':'XYZ','sparse_axis':'Z','sampling_factor':4,'sampling_offset':0,
                               'voxel_spacing_um_xyz':config['voxel_spacing_um_xyz']})
-    return {'manifest_version':'berea-spatial-eval-v1','split_manifest_version':config['manifest_version'],
+    return {'manifest_version':'berea-spatial-xyz-eval-v2','split_manifest_version':config['manifest_version'],
             'normalization_id':normalization['normalization_id'],'crops':crops}
 
 
@@ -129,6 +129,6 @@ def load_protocol(config_dir: Path) -> tuple[dict,dict,dict]:
     expected = [{'source_core_id':e['source_core_id'],'region_id':e['region_id'],
                  'origin_xyz':e['region_origin_xyz'],'shape_xyz':e['region_shape_xyz']}
                 for e in split['splits']['train']]
-    if norm.get('train_regions') != expected:
+    if norm.get('train_regions') != expected or norm.get('storage_order') != 'XYZ':
         raise ValueError('normalization was fitted to different train regions')
     return split,norm,manifest

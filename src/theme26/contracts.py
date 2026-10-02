@@ -8,6 +8,7 @@ from typing import Literal, TypeAlias
 ShapeXYZ: TypeAlias = tuple[int, int, int]
 SpacingXYZ: TypeAlias = tuple[float, float, float]
 AxisOrder: TypeAlias = Literal["XYZ"]
+StorageOrder: TypeAlias = Literal["XYZ"]
 
 AXIS_ORDER: AxisOrder = "XYZ"
 SPARSE_AXIS = 2
@@ -32,14 +33,19 @@ class VolumeMetadata:
     endianness: Literal["little", "big", "not-applicable"]
     normalization_id: str | None = None
     axis_order: AxisOrder = AXIS_ORDER
+    storage_order: StorageOrder = AXIS_ORDER
 
     def __post_init__(self) -> None:
         if not self.sample_id or not self.source_core_id:
             raise ValueError("sample_id and source_core_id must be non-empty")
         _positive_triplet("shape_xyz", self.shape_xyz)
         _positive_triplet("voxel_spacing_um_xyz", self.voxel_spacing_um_xyz)
+        if self.endianness not in ("little", "big", "not-applicable"):
+            raise ValueError("endianness must be 'little', 'big', or 'not-applicable'")
         if self.axis_order != AXIS_ORDER:
             raise ValueError(f"axis_order must be {AXIS_ORDER!r}")
+        if self.storage_order != "XYZ":
+            raise ValueError("storage_order must be 'XYZ' (direct C-order RAW interpretation)")
 
 
 @dataclass(frozen=True)

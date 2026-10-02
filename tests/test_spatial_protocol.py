@@ -15,7 +15,7 @@ class SpatialTests(unittest.TestCase):
     def test_default_regions_and_eval_blocks_do_not_overlap(self):
         config=default_split(); validate_split(config)
         manifest=eval_manifest(config,{'normalization_id':'test'})
-        self.assertEqual(len(manifest['crops']),8)
+        self.assertEqual(len(manifest['crops']),18)
         crops=[]
         for entry in manifest['crops']:
             roi=region_spec(config['splits'][entry['split']][0])
@@ -27,7 +27,7 @@ class SpatialTests(unittest.TestCase):
 
     def test_overlapping_regions_are_rejected(self):
         config=default_split()
-        config['splits']['validation'][0]['region_origin_xyz'][0]=400
+        config['splits']['validation'][0]['region_origin_xyz'][0]=399
         with self.assertRaisesRegex(ValueError,'overlapping'):
             validate_split(config)
 

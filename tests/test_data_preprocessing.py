@@ -28,6 +28,7 @@ class RawVolumeTests(unittest.TestCase):
             source.tofile(path)
             loaded = read_raw_volume(path, metadata=self.metadata)
             np.testing.assert_array_equal(loaded, source)
+            del loaded
             path.write_bytes(b"too short")
             with self.assertRaises(ValueError):
                 read_raw_volume(path, metadata=self.metadata)
