@@ -8,7 +8,7 @@
 
 | 담당 | 소유 경로 | 책임 |
 |---|---|---|
-| 모델·통합·GPU 담당 | `src/theme26/models/saint/`, `scripts/train.py`, `scripts/infer.py`, `configs/`, `slurm/` | SAINT, 학습, 추론, GPU 실행, 최종 병합 |
+| 모델·통합·GPU 담당 | `src/theme26/models/saint/`, `scripts/train.py`, `scripts/infer.py`, `config/`, `slurm/` | SAINT, 학습, 추론, GPU 실행, 최종 병합 |
 | 데이터 담당 | `src/theme26/data/` | raw loading, normalization, aligned crop, x4 sampling, E0 |
 | loss 담당 | `src/theme26/losses/` | L1, gradient, soft Dice, 3D soft-clDice |
 | 평가 담당 | `src/theme26/evaluation/` | image, topology, physics metrics와 CSV export |
@@ -66,7 +66,7 @@ Final dense volume:        [B, 1, X, Y, Z_hr]
 | 내부 binary | `bool` 또는 `uint8` | `pore=1`, `solid=0` |
 | observed/missing mask | `bool` | 포함 위치가 `True` |
 
-정규화의 lower/upper 값은 training core만으로 추정해 version과 함께 동결한다. 개별 test core에 맞춘 normalization은 금지한다.
+정규화의 lower/upper 값은 train 공간 구역만으로 추정해 version과 함께 동결한다. 개별 test core에 맞춘 normalization은 금지한다.
 
 ### 2.4 Physical spacing
 
@@ -206,7 +206,7 @@ compute_physics_metrics(predicted_pore, target_pore, *, spacing_um_xyz,
 
 다음 항목은 API를 바꾸지 않고 config/manifest로 동결한다.
 
-- 11개 core의 실제 train/validation/test ID
+- Berea train/validation/test 공간 범위 및 buffer
 - training-only normalization lower/upper와 `normalization_id`
 - validation/test crop 좌표와 sampling offset
 - soft threshold, temperature와 topology protocol version
@@ -229,3 +229,15 @@ Test 결과를 본 뒤 위 값을 변경하지 않는다.
 - 개인 절대 경로 및 대용량 데이터가 없다는 확인
 
 GPU 담당자는 병합 후 실제 데이터 one-batch overfit 및 full-volume smoke test를 실행한다. CPU unit test 통과와 GPU 전체 학습 성공은 서로 다른 acceptance gate이다.
+
+
+## 8. Berea spatial protocol extension
+
+`config/splits.json`은 동일 Berea core의 서로 겹치지 않는 region_origin_xyz/region_shape_xyz를
+각 split에 기록한다. 좌표 끝은 제외한다. `CoreSource.region`은 crop 허용 범위이며
+`TrainRandomCropDataset`은 명시적인 train region 없이는 사용할 수 없다.
+`preprocess_crop`은 ROI 밖 crop을 거부한다. 기본 crop/SamplingSpec 공개 API는 유지한다.
+정규화는 train 구역만으로 계산하고 `normalization_id`, region 좌표와 voxel count를 기록한다.
+sample에 `region_id`, `normalization_id`, `voxel_spacing_um_xyz`를 보존한다.
+단일 상 crop은 binary label의 허용 집합 {0,1} 내에 있으면 전처리한다.
+Source audit와 empty-phase 물성 평가 정책은 별개이다.

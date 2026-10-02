@@ -9,7 +9,7 @@ This document defines the portable server layout. Replace `<group>` and the two 
 /project/<group>/data/11_sandstones/
   raw/                                    # immutable 1000^3 source volumes
   processed/                              # normalized or chunked representations
-  splits/                                 # core split and fixed crop manifests
+  splits/                                 # spatial-region split and fixed crop manifests
 /project/<group>/runs/theme26/
   E0_interpolation/
   E1_saint_l1/
@@ -18,7 +18,7 @@ This document defines the portable server layout. Replace `<group>` and the two 
 /project/<group>/envs/theme26/             # server Python environment
 ```
 
-Raw volumes, generated arrays, checkpoints, predictions and solver outputs remain outside Git. Training reads a `256^3` crop from a processed source volume and generates sagittal/coronal SAINT samples at runtime. Validation and test use registered crop coordinates.
+Raw volumes, generated arrays, checkpoints, predictions and solver outputs remain outside Git. Training reads a `256^3` crop from read-only Berea RAW memory maps within its train region and generates sagittal/coronal SAINT samples at runtime. Validation and test use registered crop coordinates.
 
 ## Compute allocation
 
@@ -59,7 +59,7 @@ set -euo pipefail
 cd /project/<group>/theme26
 
 /project/<group>/envs/theme26/bin/python scripts/train.py \
-  --config configs/e1_saint_l1.yaml
+  --config config/e1_saint_l1.yaml
 ```
 
 Only the partition name, GPU request syntax and `/project/<group>` path are cluster-specific. Some clusters use `--gpus=1` or a model-specific partition instead of `--gres=gpu:1`.
@@ -105,3 +105,12 @@ data audit and manifests
 Do not submit a full training job until the one-batch overfit test shows a decreasing loss and the output shape and missing-slice mask have been verified.
 
 Before an E3 headline job, also verify grayscale/binary alignment and pore polarity, freeze the training/validation-derived soft threshold and temperature, and run a 3D phantom gradient-flow test. Test topology or permeability must not be used to tune E3.
+
+
+## Current implementation status
+
+Only Berea grayscale_filtered/binary RAW files are required for the primary experiment.
+Run `freeze_berea_protocol.py` on the configured train ROI, then `qc_fixed_eval_crops.py`.
+The training YAML and trainer/model/loss/metric implementation are still pending.
+The Slurm command above is a template and cannot start a complete experiment yet.
+Install the project (`pip install -e .`) or set PYTHONPATH=src before running scripts.

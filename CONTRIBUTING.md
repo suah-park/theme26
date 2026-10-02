@@ -6,7 +6,7 @@
 
 | 영역 | 경로 | 주요 책임 |
 |---|---|---|
-| Model and integration | `src/theme26/models/saint/`, `scripts/`, `configs/`, `slurm/` | SAINT, 학습·추론, GPU 실행, 통합 |
+| Model and integration | `src/theme26/models/saint/`, `scripts/`, `config/`, `slurm/` | SAINT, 학습·추론, GPU 실행, 통합 |
 | Data | `src/theme26/data/` | Raw I/O, normalization, crop, sparse sampling, E0 |
 | Loss | `src/theme26/losses/` | L1, gradient, soft Dice, 3D soft-clDice |
 | Evaluation | `src/theme26/evaluation/` | Image, topology, physics metrics |
@@ -79,7 +79,7 @@ docs(protocol): clarify segmentation settings
 
 - Grayscale과 binary crop이 같은 좌표인가?
 - Source polarity를 확인한 뒤 내부 `pore=1`로 변환하는가?
-- Parent-core split 이후에 crop을 생성하는가?
+- Berea 공간 split 이후에 구역 내부에서만 crop을 생성하는가?
 - Sparse input, observed mask와 primary metric mask가 정렬되는가?
 
 ### Model and loss
@@ -96,3 +96,5 @@ docs(protocol): clarify segmentation settings
 - 모든 모델에 동일한 segmentation과 solver를 사용하는가?
 - Slice나 voxel을 독립 통계 표본으로 취급하지 않는가?
 - Non-percolating prediction을 임의의 작은 permeability로 대체하지 않는가?
+
+주 실험의 데이터/설정 변경은 Berea spatial protocol을 따른다. 정규화 통계에는 train 구역만 포함한다.

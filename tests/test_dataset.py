@@ -21,7 +21,7 @@ class DatasetTests(unittest.TestCase):
             binary = (gray > 100).astype(np.uint8)
             gray_path, binary_path = root / "gray.raw", root / "binary.raw"
             gray.tofile(gray_path); binary.tofile(binary_path)
-            source = CoreSource("tiny", "train", gray_path, binary_path, 0, shape)
+            source = CoreSource("tiny", "train", gray_path, binary_path, 0, shape, region=CropSpec((0, 0, 0), shape))
             item = preprocess_crop(source, crop=CropSpec((1, 1, 1), (4, 4, 4)), normalization_lower=0, normalization_upper=255)
             self.assertEqual(item.grayscale.shape, (4, 4, 4))
             self.assertTrue(np.array_equal(item.pore_mask, binary[1:5, 1:5, 1:5] == 0))

@@ -99,6 +99,6 @@ def to_pore_mask(
     if not np.isfinite(binary).all():
         raise ValueError("binary volume must not contain NaN or Inf")
     labels = np.unique(binary)
-    if labels.size != 2 or not np.array_equal(labels, np.array([0, 1], dtype=labels.dtype)):
-        raise ValueError(f"binary volume must contain exactly labels 0 and 1, found {labels.tolist()}")
+    if labels.size == 0 or not np.isin(labels, [0, 1]).all():
+        raise ValueError(f"binary volume may only contain labels 0 and 1, found {labels.tolist()}")
     return (binary == source_pore_value).astype(np.bool_, copy=False)
