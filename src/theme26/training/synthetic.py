@@ -59,7 +59,10 @@ class SyntheticAmiDataset(Dataset[dict[str, torch.Tensor]]):
             ),
             dim=0,
         )
-        return {"input": marginal, "target": target, "fdm": self.fdm.clone()}
+        indices = torch.arange(target.shape[-1])
+        primary = (indices > 0) & (indices < (self.z_lr - 1) * self.factor) & (indices % self.factor != 0)
+        return {"input": marginal, "target": target, "fdm": self.fdm.clone(),
+                "primary_mask": primary.view(1, 1, -1).expand_as(target)}
 
 
 class SyntheticRfnDataset(Dataset[dict[str, torch.Tensor]]):
@@ -88,4 +91,6 @@ class SyntheticRfnDataset(Dataset[dict[str, torch.Tensor]]):
         return {
             "input": torch.cat((sagittal, coronal), dim=0),
             "target": target,
+            # Synthetic RFN samples represent missing axial slices only.
+            "primary_mask": torch.ones_like(target, dtype=torch.bool),
         }

@@ -171,7 +171,7 @@ topology_loss(probability, target, *, iterations,
               dice_weight=0.5, cldice_weight=0.5) -> torch.Tensor
 ```
 
-E1/E2 학습 loss의 mask 범위는 upstream stage별 동작을 audit한 뒤 config와 Research Protocol에 동결한다. 평가가 bracketed missing-only라는 이유만으로 학습 loss까지 missing-only로 가정하지 않는다. E3 topology는 observed slice를 입력값으로 교체한 assembled 3D soft pore volume에 적용하며, observed slice를 통해 gradient가 흐르면 안 된다.
+E1 AMI/RFN은 전체 raw output L1로 학습하고, clipping한 validation primary MAE로 모델을 선택한다. Batch의 `primary_mask`는 평가용이며 학습 loss의 `mask`와 별개다. E2 gradient mask 경계 규칙은 별도 동결한다. E3 topology는 observed slice를 입력값으로 교체한 assembled 3D soft pore volume에 적용하며, observed slice를 통해 gradient가 흐르면 안 된다.
 
 ### 4.4 Evaluation
 

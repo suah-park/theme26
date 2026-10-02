@@ -1,0 +1,5 @@
+stage: ami-cache
+range_policy: raw_intermediate_clip_final
+batch_size: 1
+mixed_precision: false
+output_dir: runs/e1_ami_cache
