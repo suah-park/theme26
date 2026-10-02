@@ -41,20 +41,16 @@ python -m pip install -e .
 
 ```bash
 python -m unittest discover -s tests -v
-python scripts/audit_11_sandstones.py --data-root /path/to/Berea --output-dir outputs/audit
-python scripts/freeze_berea_protocol.py --data-root /path/to/Berea
-python scripts/qc_fixed_eval_crops.py --data-root /path/to/Berea --output-dir outputs/spatial_qc
-python scripts/preprocess_berea.py --data-dir /path/to/Berea --crop-id berea_validation_00 --output outputs/berea_validation_00.npz
-python scripts/qc_berea_preprocessing.py --input outputs/berea_validation_00.npz --output-dir outputs/artifact_qc
+python -m theme26.data audit --data-root /path/to/Berea --output-dir outputs/audit
+python -m theme26.data qc --data-root /path/to/Berea --output-dir outputs/spatial_qc
 ```
 
 설치하지 않고 실행할 때는 `PYTHONPATH=src`를 설정합니다.
 PowerShell에서는 `$env:PYTHONPATH='src'`를 먼저 실행합니다.
-기존 `freeze_11_sandstones_protocol.py`는 Berea 전용 명령의 호환 alias입니다.
-
 정규화는 train 구역만의 histogram으로 p0.5/p99.5를 계산하고 모든 split에 같은 값을 적용합니다.
 현재 구역과 제공된 Berea에서 계산한 값은 `2/184`, train voxel 수는 400,000,000입니다.
-파일 또는 구역을 바꾸면 freeze를 다시 실행해야 합니다. 예전 8-core 기준 `2/206`은 사용하지 않습니다.
+동결된 값과 crop 좌표는 `configs/data/`의 YAML에 보존합니다. 파일 또는 구역을 바꾸는 것은
+새 protocol version이 필요한 연구 설계 변경입니다. 예전 8-core 기준 `2/206`은 사용하지 않습니다.
 Source binary의 pore 값은 0이며 내부 mask에서는 `True=pore`입니다.
 
 ## tests와 연구 test의 차이
@@ -69,13 +65,16 @@ Source binary의 pore 값은 0이며 내부 mask에서는 `True=pore`입니다.
 ```text
 src/theme26/
   contracts.py
-  data/          # RAW, crop, sampler, spatial protocol, numeric QC
+  data/          # RAW, crop, sampler, spatial protocol, audit/QC와 data CLI
   models/saint/  # AMI, FDM, dynamic filter, RFN, 전체 forward
   losses/        # L1/gradient 구현, topology 스켈레톤
   evaluation/    # metric 스켈레톤
-scripts/         # 전처리·QC·E1 학습, infer 스켈레톤
-config/          # canonical spatial split, normalization, fixed eval crops
-configs/         # E1 YAML 실행 설정과 canonical 설정에서 생성한 CSV/YAML
+  training/      # dataset adapter, engine, checkpoint
+scripts/         # train과 infer 실행 진입점만 유지
+configs/
+  data/          # Berea split, normalization, crop manifest (모두 YAML)
+  model/         # 공유 SAINT architecture profile
+  experiments/   # 실행 설정; smoke는 experiments/smoke/
 tests/           # 합성 데이터 CPU unit tests
 ```
 
@@ -103,13 +102,11 @@ tail z=253..255은 boundary diagnostic입니다. 최종 volume에 observed slice
 
 ```powershell
 $env:THEME26_GRAYSCALE_RAW = 'C:\path\to\Berea_2d25um_grayscale_filtered.raw'
-python scripts/train.py --config configs/e1_ami_berea_pilot.yaml --device cpu
+python scripts/train.py --config configs/experiments/e1_ami_berea_pilot.yaml --device cpu
 ```
 
-학습은 `config/` JSON을 읽고 CSV의 모든 구역·평가 좌표·버전을 검사합니다.
-Freeze는 `configs/data/`의 48/9/9 CSV와 호환 YAML도 같은 결과에서 생성합니다.
+학습은 `configs/data/`의 YAML만 읽으며 split, 정규화, 48/9/9 crop 좌표와 version을 검사합니다.
 옛 ZYX 및 424/456/744 기반 artifact/checkpoint는 이번 XYZ 설정의 결과로 재사용하지 않습니다.
-소스 파일 이름의 v1은 호환 경로이며 실제 protocol/normalization ID는 XYZ v2입니다.
 현재 학습 엔진의 checkpoint 기준은 전체 L1이고 gradient 경계 mask는 양쪽 포함 방식입니다.
 Primary-mask MAE 선택과 observed–missing 경계 정책은 논의 후 별도 변경합니다.
 학습 중 loss와 checkpoint 기준을 혼동하지 않습니다.

@@ -6,8 +6,8 @@
 
 | 영역 | 경로 | 주요 책임 |
 |---|---|---|
-| Model and integration | `src/theme26/models/saint/`, `scripts/`, `config/`, `slurm/` | SAINT, 학습·추론, GPU 실행, 통합 |
-| Data | `src/theme26/data/` | Raw I/O, normalization, crop, sparse sampling, E0 |
+| Model and integration | `src/theme26/models/saint/`, `src/theme26/training/`, `scripts/train.py`, `scripts/infer.py` | SAINT, 학습·추론, GPU 실행, 통합 |
+| Data | `src/theme26/data/`, `configs/data/` | Raw I/O, normalization, crop, sparse sampling, E0, data audit/QC |
 | Loss | `src/theme26/losses/` | L1, gradient, soft Dice, 3D soft-clDice |
 | Evaluation | `src/theme26/evaluation/` | Image, topology, physics metrics |
 
@@ -60,6 +60,8 @@ docs(protocol): clarify segmentation settings
 - 원본 volume, checkpoint, prediction과 solver bulk output은 commit하지 않습니다.
 - 개인 PC와 서버의 절대 경로를 source code에 넣지 않습니다.
 - Test 결과를 보고 threshold, loss weight나 checkpoint rule을 변경하지 않습니다.
+- 설정은 `configs/` 아래 YAML로만 관리합니다. 새로운 `config/`, JSON 또는 CSV 설정 파일을 만들지 않습니다.
+- `scripts/`에는 전체 workflow 진입점만 둡니다. 데이터 로직은 `src/theme26/data/`에 둡니다.
 
 ## PR 체크리스트
 
