@@ -1,188 +1,95 @@
-# SAINT for Grayscale Digital Rock Reconstruction
+# SAINT for Berea Sparse-Z Reconstruction
 
-Sparse한 3D sandstone Micro-CT volume에서 누락된 z축 단면을 복원하고, 영상 품질뿐 아니라 pore topology와 물성이 얼마나 보존되는지 평가하는 연구 프로젝트입니다.
+스캔 부담을 줄이기 위한 주 실험: Berea 한 core의 train 구역에서 학습한 모델이
+같은 core의 별도 구역에서 네 장마다 한 장만 관측하여 누락 단면을 복원하는지 평가합니다.
+Dense Berea에서 synthetic x4 입력을 만드는 실험이며 실제 스캔 비용 절감을 직접 측정한 결과는 아닙니다.
+Binary는 grayscale 입력/정답이 아니라 E3 topology와 평가 reference입니다.
 
-원 논문의 SAINT(Spatially Aware Interpolation NeTwork) 구조를 grayscale digital rock에 맞게 재구현합니다. 최종 모델 출력은 dense grayscale volume이며, binary pore mask는 topology-aware fine-tuning과 구조·물성 평가에만 사용합니다.
+## 고정 공간 분할
 
-## 연구 질문
+모든 좌표는 canonical XYZ, 끝 좌표는 제외합니다. 원본은 uint8 `1000³`, model crop은 `256³`입니다.
 
-> x4 sparse-z sandstone volume에서 SAINT 기반 interpolation이 linear interpolation보다 누락 단면을 잘 복원하며, gradient 및 topology loss가 pore boundary, connectivity와 permeability 보존을 개선하는가?
+| Split | X 범위 | Y/Z 범위 | 사용 |
+|---|---|---|---|
+| Train | `[0,424)` | `[0,1000)` | 구역 내부 랜덤 crop, 정규화 통계 |
+| Buffer | `[424,456)` | 전체 | 사용하지 않음 |
+| Validation | `[456,712)` | `[0,1000)` | 고정 crop 4개, 모델 선택 |
+| Buffer | `[712,744)` | 전체 | 사용하지 않음 |
+| Test | `[744,1000)` | `[0,1000)` | 고정 crop 4개, 최종 평가 |
 
-## 고정 실험 범위
+각 평가 slab에서 Y/Z 시작 좌표는 `(64,64),(680,64),(64,680),(680,680)`입니다.
+32-voxel buffer는 초기 설계 값이며 공간적 독립성을 보장한다고 주장하지 않습니다.
+원본 RAW의 XYZ 저장 순서는 데이터 metadata와 시각 검사로 확인해야 합니다.
 
-| 항목 | 설정 |
-|---|---|
-| Dataset | 11 Sandstones filtered grayscale |
-| Source volume | `1000 x 1000 x 1000` |
-| Spatial crop | `256 x 256 x 256` |
-| Axis convention | `[X, Y, Z]` |
-| Sparse axis | Z |
-| Sampling factor | x4 |
-| Model output | Dense grayscale volume |
-| Internal pore label | `pore=1`, `solid=0` |
-| Learned-model seeds | `1, 2, 3` |
-| Physical evaluation | z-direction permeability |
+## 데이터와 설치
 
-현재 범위에는 x2/x6, raw-grayscale robustness, GAN, diffusion, architecture search, persistent-homology loss와 permeability loss를 포함하지 않습니다.
+필요한 파일은 Berea 두 개뿐입니다:
 
-## 데이터
+- `Berea_2d25um_grayscale_filtered.raw`
+- `Berea_2d25um_binary.raw`
 
-- Dataset: [11 Sandstones: Raw, Filtered and Segmented Data](https://digitalporousmedia.org/datasets/317/)
-- DOI: [10.17612/F4H1-W124](https://doi.org/10.17612/F4H1-W124)
-- License: ODC-By 1.0
-- Voxel spacing: `2.25 um` isotropic
-- Grayscale input/target: `*_grayscale_filtered.raw`
-- Auxiliary topology target: aligned binary volume
-
-원본 데이터, crop, checkpoint와 전체 prediction은 Git에 저장하지 않습니다. 서버에서는 다음처럼 code, data와 run artifact를 분리합니다.
-
-```text
-/project/<group>/theme26/
-/project/<group>/data/11_sandstones/
-/project/<group>/runs/theme26/
-```
-
-### Berea 전처리
-
-`scripts/preprocess_berea.py`는 두 Berea RAW 파일의 byte size/dtype을 검증하고, canonical `[X,Y,Z]` `uint8` volume을 읽어 정규화, aligned `256³` crop, binary pore mask 및 x4 sparse-z/E0 artifact를 만듭니다. `--normalization-lower/--normalization-upper`는 반드시 training core에서 동결한 값이고, `--source-pore-value`는 dataset metadata로 확인한 값이어야 합니다.
+`--data-root`는 두 파일이 직접 있는 디렉터리 또는 `Berea/`의 부모를 받습니다.
+원본은 읽기 전용으로 사용하며 대용량 배열·checkpoint는 Git에 넣지 않습니다.
 
 ```bash
-PYTHONPATH=src python scripts/preprocess_berea.py \
-  --data-dir /path/to/11_sandstones/Berea \
-  --output /path/to/artifacts/berea_crop.npz \
-  --crop-origin 372 372 372 \
-  --normalization-lower <frozen_train_lower> \
-  --normalization-upper <frozen_train_upper> \
-  --source-pore-value <0_or_1> \
-  --offset 0
+python -m pip install -e .
+# 시각 QC가 필요하면: python -m pip install -e '.[plots]'
+# 모델 구현·학습 환경에는: python -m pip install -e '.[training]'
 ```
 
-Artifact에는 normalized grayscale/pore crop, `[256,256,64]` sparse input, HR-grid masks, observed z-indices 및 linear E0 volume이 포함됩니다. 기본 protocol (`offset=0`)에서 observed slice는 64장, headline `primary_metric_mask`는 189장의 bracketed missing slice만 포함합니다.
+## 전처리와 검증 실행
 
-## 문제 설정
-
-Canonical dense volume은 다음 형식을 사용합니다.
-
-```text
-NumPy:   [X, Y, Z]
-PyTorch: [B, C, X, Y, Z]
-dtype:   float32
-range:   [0, 1]
+```bash
+python -m unittest discover -s tests -v
+python scripts/audit_11_sandstones.py --data-root /path/to/Berea --output-dir outputs/audit
+python scripts/freeze_berea_protocol.py --data-root /path/to/Berea
+python scripts/qc_fixed_eval_crops.py --data-root /path/to/Berea --output-dir outputs/spatial_qc
+python scripts/preprocess_berea.py --data-dir /path/to/Berea --crop-id berea_validation_00 --output outputs/berea_validation_00.npz
+python scripts/qc_berea_preprocessing.py --input outputs/berea_validation_00.npz --output-dir outputs/artifact_qc
 ```
 
-Z축에서 네 장마다 한 장을 관측합니다.
+설치하지 않고 실행할 때는 `PYTHONPATH=src`를 설정합니다.
+PowerShell에서는 `$env:PYTHONPATH='src'`를 먼저 실행합니다.
+기존 `freeze_11_sandstones_protocol.py`는 Berea 전용 명령의 호환 alias입니다.
 
-```python
-I_LR = I_HR[:, :, offset::4]
-```
+정규화는 train 구역만의 histogram으로 p0.5/p99.5를 계산하고 모든 split에 같은 값을 적용합니다.
+현재 구역과 제공된 Berea에서 계산한 값은 `2/184`, train voxel 수는 424,000,000입니다.
+파일 또는 구역을 바꾸면 freeze를 다시 실행해야 합니다. 예전 8-core 기준 `2/206`은 사용하지 않습니다.
+Source binary의 pore 값은 0이며 내부 mask에서는 `True=pore`입니다.
 
-`256` 깊이와 offset 0에서는 64장의 observed slice가 생성됩니다. Primary 영상 평가는 양쪽에 관측 단면이 존재하는 189장의 bracketed missing slice에서 수행하며, 마지막 `z=253,254,255`는 boundary diagnostic으로만 기록합니다.
+## tests와 연구 test의 차이
 
-## 모델
+`tests/`는 작은 NumPy 배열과 임시 RAW 파일로 구현을 검증합니다. 실제 Berea가 없어도 실행됩니다.
+공간 경계, split 겹침, train-only 통계, 재현성, 단일 상 crop, 잘못된 artifact도 검사합니다.
+연구 test 구역은 실제 Berea `[744,1000)`이며 학습한 모델의 최종 성능 평가에 사용합니다.
+전처리 QC PASS는 데이터 형식/정렬/보간 검증이며 학습 성능이나 복원 품질 결과가 아닙니다.
 
-SAINT는 sparse volume을 sagittal 및 coronal 방향의 2D marginal slice로 처리합니다.
-
-```text
-Sparse grayscale volume
-        |
-        +--> sagittal slices --+
-        |                       +--> shared AMI --> sagittal volume --+
-        +--> coronal slices ----+--> shared AMI --> coronal volume ---+--> RFN --> dense grayscale volume
-```
-
-- AMI: feature learning, Filter Distance Matrix, dynamic filter generation, anisotropic sub-pixel reconstruction
-- RFN: sagittal/coronal reconstruction의 평균과 residual correction을 이용한 fusion
-- AMI 입력의 3채널: RGB가 아니라 인접한 grayscale marginal slice 세 장
-
-## 실험
-
-| ID | 방법 | Loss |
-|---|---|---|
-| E0 | Linear z interpolation | 없음 |
-| E1 | SAINT grayscale baseline | L1 |
-| E2 | Gradient ablation | L1 + `0.1 * gradient` |
-| E3 | Topology-aware RFN fine-tuning | L1 + `0.1 * gradient` + `0.1 * topology` |
-
-E3는 동일 seed의 E2 best checkpoint에서 시작합니다. AMI를 고정하고 RFN을 fine-tuning하며, topology loss는 assembled 3D grayscale volume을 soft pore probability로 변환해 계산합니다.
-
-```text
-L_topology = 0.5 * L_softDice + 0.5 * L_soft-clDice
-```
-
-Soft threshold, temperature와 soft-skeletonization iteration은 training/validation에서 정한 뒤 config에 고정합니다. Permeability는 training loss가 아니라 frozen prediction의 평가 지표입니다.
-
-## 평가
-
-### Grayscale
-
-- MAE
-- PSNR
-- SSIM
-- Gradient MAE
-- Missing slice의 상대 위치별 오차
-
-### Structure and topology
-
-- Dice/IoU
-- Porosity error
-- Specific surface area error
-- Pore-size distribution distance
-- Euler characteristic density error
-- Connected-component statistics
-- Largest connected pore ratio
-- z-percolation
-
-### Physics
-
-- z-direction tortuosity
-- z-direction permeability error
-- Percolation failure
-
-모든 모델에 동일한 frozen segmentation 및 solver 설정을 적용합니다. Test data로 threshold, checkpoint 또는 loss weight를 선택하지 않습니다.
-
-## 저장소 구조
+## 코드 구조와 진행 상태
 
 ```text
 src/theme26/
-├─ contracts.py
-├─ data/
-│  ├─ raw_volume.py
-│  ├─ crop_sampler.py
-│  └─ sparse_sampling.py
-├─ models/saint/
-│  ├─ fdm.py
-│  ├─ dynamic_filter.py
-│  ├─ ami.py
-│  ├─ rfn.py
-│  └─ model.py
-├─ losses/
-│  ├─ reconstruction.py
-│  ├─ gradient.py
-│  └─ topology.py
-└─ evaluation/
-   ├─ image_metrics.py
-   ├─ topology_metrics.py
-   └─ physics_metrics.py
-
-scripts/
-├─ train.py
-└─ infer.py
-
-tests/
-└─ test_contracts.py
+  contracts.py
+  data/          # RAW, crop, sampler, spatial protocol, numeric QC
+  models/saint/  # 모델 스켈레톤
+  losses/        # loss 스켈레톤
+  evaluation/    # metric 스켈레톤
+scripts/         # 전처리·QC 실행, train/infer 스켈레톤
+config/          # spatial split, normalization, fixed eval crops
+tests/           # 합성 데이터 CPU unit tests
 ```
 
-현재 Python 파일은 팀 분업을 위한 interface skeleton입니다. 실제 알고리즘은 각 모듈의 함수 signature와 데이터 계약을 유지하면서 구현합니다.
+전처리는 구현되어 있지만 SAINT, 학습/추론, loss와 성능 metric은 아직 미구현입니다.
+`TrainRandomCropDataset`은 NumPy `.sample(rng)` sampler입니다. 모델 담당자가 Torch adapter를 연결합니다.
 
-## 문서
+E0=linear interpolation, E1=SAINT L1, E2=L1+0.1 gradient,
+E3=E2에서 AMI를 고정한 RFN topology fine-tuning입니다.
+Sparse `[256,256,64]`, observed slice 64장, primary metric 189장,
+tail z=253..255은 boundary diagnostic입니다. 최종 volume에 observed slice를 재삽입합니다.
 
-- [Research protocol](docs/research_protocol.md): 데이터, 학습, 평가 규칙
-- [Interface contract](docs/interface_contract.md): 모듈별 입력·출력 shape, dtype과 공개 API
-- [Storage and Slurm](docs/operations/storage-and-slurm.md): 서버 저장 구조와 GPU 실행 예시
-- [Contributing](CONTRIBUTING.md): branch, PR과 review 규칙
+## 문서·출처
 
-## 참고자료
-
-- Peng et al., *SAINT: Spatially Aware Interpolation NeTwork for Medical Slice Synthesis*, CVPR 2020. [DOI](https://doi.org/10.1109/CVPR42600.2020.00777)
-- [Official SAINT repository](https://github.com/cpeng93/SAINT)
-- Shit et al., *clDice - A Novel Topology-Preserving Loss Function for Tubular Structure Segmentation*, CVPR 2021. [Paper](https://openaccess.thecvf.com/content/CVPR2021/html/Shit_clDice_-_A_Novel_Topology-Preserving_Loss_Function_for_Tubular_Structure_CVPR_2021_paper.html)
+- [연구 프로토콜](docs/research_protocol.md)
+- [인터페이스](docs/interface_contract.md)
+- [전처리 인계](docs/data_handoff.md)
+- [데이터](https://digitalporousmedia.org/datasets/317/) / DOI 10.17612/F4H1-W124 / ODC-By 1.0
+- [SAINT 원본](https://github.com/cpeng93/SAINT)

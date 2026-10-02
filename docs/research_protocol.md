@@ -15,7 +15,7 @@ SAINT를 grayscale sandstone Micro-CT에 적용하여 sparse z-slice로부터 de
 ### Included
 
 - 11 Sandstones filtered grayscale
-- Parent-core train/validation/test split
+- Berea 한 core의 비중첩 공간 train/validation/test split
 - `256 x 256 x 256` crop
 - Z축 x4 sparse sampling
 - SAINT AMI/RFN reimplementation
@@ -69,17 +69,20 @@ Shape, dtype와 endianness는 파일명만 보고 추정하지 않고 metadata�
 
 ### Split
 
-```text
-Train:      8 parent cores
-Validation: 1 parent core
-Test:       2 parent cores
-```
+주 실험은 Berea만 사용한다. 한 core의 train 구역에서 학습하여 같은 core의 별도 구역을
+x4 sparse-z 입력으로 복원한다. 새로운 core 일반화는 이번 주 실험의 범위가 아니다.
 
-- Parent core를 먼저 분리한 뒤 crop을 생성합니다.
-- 동일 core의 crop을 여러 split에 포함하지 않습니다.
-- Training crop은 train core 내부에서 추출합니다.
-- Validation/test crop과 sampling offset은 manifest에 고정합니다.
-- 정확한 core ID는 첫 headline training 전에 동결합니다.
+| Split | X (끝 제외) | Y/Z | Crop |
+|---|---|---|---|
+| Train | [0,424) | [0,1000) | train 구역 내 random 256³ |
+| Validation | [456,712) | [0,1000) | 고정 4개 |
+| Test | [744,1000) | [0,1000) | 고정 4개 |
+
+구역 사이 32-voxel buffer는 사용하지 않는다. 이 값은 초기 설계이며 공간적 독립성의 증거가 아니다.
+평가 Y/Z origins는 (64,64),(680,64),(64,680),(680,680)이고 각 split의 X 시작에 배치한다.
+먼저 구역을 분리한 뒤 그 안에 완전히 포함되는 crop만 생성한다.
+Validation/test의 dense grayscale은 선택/평가 정답으로만 사용하고 모델 입력은 sparse다.
+Split·평가 좌표·offset은 성능 결과 확인 전에 고정하며 seed마다 변경하지 않는다.
 
 ## 4. Data Contract
 
@@ -99,7 +102,7 @@ Source: uint8 [0,255]
 Model:  float32 [0,1]
 ```
 
-Normalization parameters는 training core만으로 추정하고 모든 split과 모델에 동일하게 사용합니다.
+Normalization parameters는 train 구역만으로 추정하고 모든 split과 모델에 동일하게 사용합니다.
 
 ### Binary
 
@@ -301,10 +304,10 @@ Prediction이 non-percolating이면 임의의 작은 permeability를 대입하�
 
 ### Statistical unit
 
-- Held-out parent core 또는 사전 등록된 non-overlapping block
+- 사전 등록된 동일 Berea core의 non-overlapping held-out block
 - Slice와 voxel을 독립 표본으로 간주하지 않음
 - 동일 core, crop와 offset의 paired comparison
-- Seed와 core/block 변동을 분리해 보고
+- Seed와 block 변동을 분리해 보고; 동일 core block을 독립 암석 표본으로 간주하지 않음
 
 ## 10. Run Metadata
 
@@ -336,7 +339,7 @@ soft_skeleton_iterations
 
 ## 11. Values to Freeze Before Full Training
 
-- Exact train/validation/test core IDs
+- Exact Berea train/validation/test regions and buffer
 - Normalization method and parameters
 - Validation/test crop coordinates and sampling offsets
 - AMI/RFN stage loss region
@@ -350,9 +353,9 @@ soft_skeleton_iterations
 
 ### Data
 
-- [ ] 11 core checksum, shape, dtype와 endianness 확인
+- [ ] Berea source checksum, shape, dtype와 endianness 확인
 - [ ] Grayscale/binary alignment와 pore polarity 확인
-- [ ] Parent-core split manifest 동결
+- [ ] Berea spatial-region split manifest 동결
 - [ ] Normalization config 동결
 - [ ] Aligned `256^3` crop test
 - [ ] x4 sampling과 primary mask test
@@ -381,6 +384,11 @@ soft_skeleton_iterations
 - [ ] Core/block-level result table
 
 ## 13. Claim Boundary
+
+학습용 dense train 구역 확보 비용을 포함해 스캔 부담을 논의한다. 본 실험은 synthetic x4
+subsampling을 사용하며 실제 장비 시간/비용 75% 감소를 측정했다고 주장하지 않는다.
+Same-core held-out region 성능만 평가하고 unseen-core 일반화를 주장하지 않는다.
+
 
 권장 표현:
 
