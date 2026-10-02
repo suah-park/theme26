@@ -51,6 +51,23 @@ def _load_config(path: Path) -> dict[str, Any]:
     for section in ("experiment", "model", "data", "training"):
         if not isinstance(config.get(section), dict):
             raise ValueError(f"config requires a mapping section named {section!r}")
+    model = config['model']
+    if 'settings' in model:
+        if set(model) != {'settings', 'profile'}:
+            raise ValueError('shared model settings require exactly settings and profile; overrides are not allowed')
+        settings_path = Path(model['settings'])
+        if not settings_path.is_absolute():
+            settings_path = REPOSITORY_ROOT / settings_path
+        with settings_path.open(encoding='utf-8') as stream:
+            settings = yaml.safe_load(stream)
+        profile = model['profile']
+        stage = config['experiment'].get('stage')
+        if stage not in ('ami', 'rfn') or not isinstance(profile, str) or not profile.startswith(stage + '_'):
+            raise ValueError('model profile must match the AMI/RFN stage')
+        if not isinstance(settings, dict) or profile not in settings.get('profiles', {}):
+            raise ValueError(f'unknown model profile: {profile}')
+        config['model_reference'] = dict(model)
+        config['model'] = dict(settings['profiles'][profile])
     return config
 
 

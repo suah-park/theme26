@@ -92,6 +92,7 @@ tail z=253..255은 boundary diagnostic입니다. 최종 volume에 observed slice
 
 ## 문서·출처
 
+- [실험·모델 설정 통합본](docs/experiment_model_settings.md)
 - [연구 프로토콜](docs/research_protocol.md)
 - [인터페이스](docs/interface_contract.md)
 - [전처리 인계](docs/data_handoff.md)
@@ -112,3 +113,11 @@ Freeze는 `configs/data/`의 48/9/9 CSV와 호환 YAML도 같은 결과에서 �
 현재 학습 엔진의 checkpoint 기준은 전체 L1이고 gradient 경계 mask는 양쪽 포함 방식입니다.
 Primary-mask MAE 선택과 observed–missing 경계 정책은 논의 후 별도 변경합니다.
 학습 중 loss와 checkpoint 기준을 혼동하지 않습니다.
+
+## 공통 모델 설정
+
+`configs/model/saint_x4.yaml`의 `ami_target`/`rfn_target`이 문서의 64-channel 목표 모델이다.
+`ami_cpu`/`rfn_cpu`는 8-channel 연결 검사 모델이며 기존 CPU 실행 설정이 이 profile을 참조한다.
+목표 모델의 GPU 실행 config, batch size와 본학습 기간은 아직 확정하지 않았다.
+YAML에서 `model.settings`와 `model.profile`을 선택하면 학습 코드가 공통 설정을 읽고,
+checkpoint에는 profile 경로와 실제 적용된 모델 값을 함께 저장한다.

@@ -4,12 +4,8 @@ experiment:
   seed: 0
 
 model:
-  factor: 4
-  feature_channels: 8
-  kernel_size: 3
-  num_blocks: 1
-  layers_per_block: 2
-  growth_rate: 4
+  settings: configs/model/saint_x4.yaml
+  profile: ami_cpu
 
 data:
   mode: synthetic
