@@ -257,7 +257,7 @@ L1 = mean(|prediction - target|)
 - 적용 데이터: 정규화된 2D grayscale AMI/RFN output과 target
 - Binary target은 사용하지 않습니다.
 - 현재 E1 engine은 batch에 mask가 없으면 output 전체에 L1을 적용합니다.
-- **AMI/RFN에서 all-phase loss를 유지할지 missing-phase만 사용할지는 본학습 config 전에 최종 동결해야 합니다.** 평가 mask와 training mask는 서로 다른 개념입니다.
+- E1 AMI/RFN은 all-phase L1로 학습합니다. 중간 출력은 raw float32이며 validation primary MAE 계산 때만 [0,1]로 clipping합니다. 평가 mask와 training mask는 서로 다른 개념입니다.
 
 ### 4.2 E2: grayscale gradient
 
@@ -359,7 +359,7 @@ Crop `256³`, x4 factor, 모델 구조, loss 정의와 split은 GPU 메모리 �
 - Test metric은 checkpoint 또는 hyperparameter 선택에 사용하지 않음
 - 각 run에 config, seed, epoch, validation metric과 Git commit을 저장
 
-현재 E1 training engine은 validation L1로 checkpoint를 저장하므로, 본학습 전 primary-mask MAE selection과 stage별 evaluation 연결이 필요합니다.
+E1 training engine은 clipped validation primary-mask MAE로 best checkpoint를 저장합니다. Raw training/validation L1은 별도로 기록합니다.
 
 ## 6. 평가 조건
 
@@ -499,8 +499,8 @@ solver_name_and_version
 1. Berea binary checksum, shape, 저장 순서, grayscale alignment와 pore polarity 확정
 2. 목표 64-channel SAINT GPU one-batch overfit
 3. 본학습 batch size, epoch/early stopping, worker, AMP 및 Slurm resource 확정
-4. E1 AMI inference 결과를 RFN 학습 input으로 만드는 실제-data pipeline
-5. AMI/RFN L1 및 gradient training mask 범위 확정
+4. 실제 Berea AMI → cache → RFN 경로의 GPU pilot 및 본학습 실행 (코드 연결 완료)
+5. E2 gradient training mask 경계 범위 확정 (E1 AMI/RFN all-phase L1은 확정)
 6. E2 initialization 규칙 확정 및 gradient loss를 training loop에 연결
 7. Soft pore threshold, temperature와 skeletonization iteration 선택
 8. Soft Dice, 3D soft-clDice 및 E3 RFN fine-tuning 구현
@@ -536,7 +536,7 @@ python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_
 python scripts/train.py --config <GPU-pilot-config> --device cuda
 ```
 
-GPU pilot config와 `slurm/train_e1.sbatch`은 실제 cluster 정보와 VRAM을 확인한 뒤 생성합니다.
+GPU pilot config와 `slurm/train_e1.sbatch`이 준비되어 있습니다. 실제 cluster 정보·VRAM 측정 후 본학습 batch size/epochs를 채웁니다. 단계별 실행과 resume는 [E1 실행 안내](e1_execution.md)를 따릅니다.
 
 ## 11. 해석과 주장 범위
 
@@ -558,7 +558,7 @@ GPU pilot config와 `slurm/train_e1.sbatch`은 실제 cluster 정보와 VRAM을 
 - `configs/data/`의 YAML 구역·정규화·crop 좌표를 학습 시작 시 함께 검사한다.
 - 실제 Berea train 4억 voxel의 직접 XYZ 정규화는 2/184이며 평가 crop 18개 QC와 AMI DataLoader 값 일치를 확인했다.
 - 모델 구조는 공통 YAML로 통일했지만 CPU 검증 모델을 본 모델로 바꾸지 않았다.
-- Checkpoint primary-mask MAE 선택은 목표 규칙이며 현재 전체 L1 선택과 구분한다.
-- Gradient loss의 observed–missing 경계 정책과 AMI/RFN training mask는 아직 동결하지 않았다.
-- E2/E3, 실제 RFN 연결, 최종 추론·평가, 목표 모델 GPU 실행은 이번 설정 정리에서 구현하거나 실행하지 않았다.
+- E1 checkpoint는 clipped validation primary-mask MAE로 선택하며 raw 전체 L1 학습과 구분한다.
+- E1 AMI/RFN은 전체 L1로 동결했고, E2 gradient observed–missing 경계 정책은 별도 결정한다.
+- 실제 RFN cache 연결, 최종 추론·저장, 재개·기록 저장과 GPU/Slurm 템플릿은 구현되어 있다. E2/E3, PSNR/SSIM·위상·물성 지표와 목표 모델 GPU 실행·본학습은 아직 진행하지 않았다.
 - 설치: `python -m pip install -e ".[training]"` (Torch 및 PyYAML 포함).

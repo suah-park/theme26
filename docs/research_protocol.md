@@ -197,7 +197,7 @@ Upstream은 구조, tensor flow와 학습 동작을 확인하기 위한 referenc
 
 ### E1
 
-AMI와 RFN을 stage별로 학습합니다. Stage별 L1 region은 upstream audit 후 config에 고정합니다. Primary evaluation mask와 training-loss mask는 별개입니다.
+AMI와 RFN을 stage별로 학습합니다. E1은 두 stage 모두 전체 출력 L1을 사용합니다. Primary evaluation mask와 training-loss mask는 별개입니다. 최종·validation metric은 [0,1] clipping 후 primary mask에서 계산합니다.
 
 ### E2
 
@@ -405,5 +405,5 @@ Same-core held-out region 성능만 평가하고 unseen-core 일반화를 주장
 
 Train crop은 seed 2026으로 만든 고정 48개를 `configs/data/berea_crops.yaml`에 기록한다. 평가 crop은 각 9개다.
 RAW는 모든 경로에서 C-order XYZ로 직접 해석한다. [976,1000) 구역은 사용하지 않는다.
-현 E1 pilot은 전체 L1으로 checkpoint를 선택한다. 위 primary-mask 선택 규칙은 아직 미연결이다.
+E1은 clipped validation primary-mask MAE로 checkpoint를 선택한다. AMI raw float32 cache를 RFN에 연결하며 최종 출력에는 관측 단면을 재삽입한다. 자세한 실행·재개는 [E1 실행 안내](e1_execution.md)를 따른다.
 Gradient mask의 양쪽 voxel 포함 정책은 그대로 유지했으며 경계 정책은 별도 결정한다.
