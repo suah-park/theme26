@@ -14,7 +14,7 @@ spec.loader.exec_module(entry)
 
 class ExperimentSettingsTests(unittest.TestCase):
     def test_cpu_configs_resolve_shared_profiles(self):
-        for path in (ROOT/'configs').glob('e1_*.yaml'):
+        for path in (ROOT/'configs/experiments').rglob('e1_*.yaml'):
             with self.subTest(path=path.name):
                 config = entry._load_config(path)
                 self.assertEqual(config['model']['feature_channels'], 8)
