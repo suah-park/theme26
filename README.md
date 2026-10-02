@@ -208,6 +208,7 @@ python scripts/train.py --config configs/e1_ami_real_data_smoke.yaml --device cp
 
 ## 문서
 
+- [Experiment and model settings](docs/experiment_model_settings.md): 확정된 실험 조건, 모델·loss·평가 설정과 남은 결정
 - [Research protocol](docs/research_protocol.md): 데이터, 학습, 평가 규칙
 - [Interface contract](docs/interface_contract.md): 모듈별 입력·출력 shape, dtype과 공개 API
 - [Storage and Slurm](docs/operations/storage-and-slurm.md): 서버 저장 구조와 GPU 실행 예시
