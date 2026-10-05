@@ -23,10 +23,6 @@ import yaml
 from torch.utils.data import DataLoader, Subset
 
 from theme26.contracts import CropSpec, SamplingSpec, VolumeMetadata
-from theme26.data import read_crop_manifest, validate_spatial_split
-from theme26.data.protocol import load_protocol
-from theme26.data.manifest import validate_protocol_records
-from theme26.models.saint import AnisotropicMetaInterpolator, ResidualFusionNetwork
 from theme26.training import (
     DigitalRockAmiDataset,
     ManifestAmiDataset,
@@ -36,7 +32,11 @@ from theme26.training import (
     load_checkpoint,
 )
 from theme26.training.directional_cache import CachedRfnDataset, validate_cache
-from theme26.training.workflow import resolve_path, file_hash
+from theme26.training.workflow import (
+    resolve_path, file_hash, read_berea_context,
+    load_experiment_config as _load_config,
+    build_stage_model as _build_model,
+)
 from theme26.training.synthetic import SyntheticAmiDataset, SyntheticRfnDataset
 
 
@@ -48,34 +48,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", type=Path, help="Optional artifact directory override")
     parser.add_argument("--resume", type=Path, help="Resume at the next epoch from last.pt")
     return parser
-
-
-def _load_config(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as stream:
-        config = yaml.safe_load(stream)
-    if not isinstance(config, dict):
-        raise ValueError("config root must be a mapping")
-    for section in ("experiment", "model", "data", "training"):
-        if not isinstance(config.get(section), dict):
-            raise ValueError(f"config requires a mapping section named {section!r}")
-    model = config['model']
-    if 'settings' in model:
-        if set(model) != {'settings', 'profile'}:
-            raise ValueError('shared model settings require exactly settings and profile; overrides are not allowed')
-        settings_path = Path(model['settings'])
-        if not settings_path.is_absolute():
-            settings_path = REPOSITORY_ROOT / settings_path
-        with settings_path.open(encoding='utf-8') as stream:
-            settings = yaml.safe_load(stream)
-        profile = model['profile']
-        stage = config['experiment'].get('stage')
-        if stage not in ('ami', 'rfn') or not isinstance(profile, str) or not profile.startswith(stage + '_'):
-            raise ValueError('model profile must match the AMI/RFN stage')
-        if not isinstance(settings, dict) or profile not in settings.get('profiles', {}):
-            raise ValueError(f'unknown model profile: {profile}')
-        config['model_reference'] = dict(model)
-        config['model'] = dict(settings['profiles'][profile])
-    return config
 
 
 def _set_seed(seed: int) -> None:
@@ -92,30 +64,6 @@ def _resolve_device(requested: str) -> torch.device:
     if requested == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA was requested but torch.cuda.is_available() is False")
     return torch.device(requested)
-
-
-def _build_model(config: dict[str, Any], stage: str) -> torch.nn.Module:
-    model_config = config["model"]
-    shared = {
-        "feature_channels": int(model_config.get("feature_channels", 64)),
-        "kernel_size": int(model_config.get("kernel_size", 3)),
-    }
-    if stage == "ami":
-        return AnisotropicMetaInterpolator(
-            factor=int(model_config.get("factor", 4)),
-            num_blocks=int(model_config.get("num_blocks", 6)),
-            layers_per_block=int(model_config.get("layers_per_block", 8)),
-            growth_rate=int(model_config.get("growth_rate", 32)),
-            **shared,
-        )
-    if stage == "rfn":
-        return ResidualFusionNetwork(
-            num_blocks=int(model_config.get("num_blocks", 4)),
-            layers_per_block=int(model_config.get("layers_per_block", 6)),
-            growth_rate=int(model_config.get("growth_rate", 12)),
-            **shared,
-        )
-    raise ValueError("experiment.stage must be 'ami' or 'rfn'")
 
 
 def _build_loaders(
@@ -137,41 +85,7 @@ def _build_loaders(
     elif mode == "berea_manifest":
         if stage != "ami":
             raise ValueError("data.mode='berea_manifest' supports only AMI training")
-        path_env = str(data_config.get("path_env", "THEME26_GRAYSCALE_RAW"))
-        raw_path = os.environ.get(path_env)
-        if not raw_path:
-            raise RuntimeError(f"set environment variable {path_env} to the grayscale .raw path")
-        protocol_path = Path(data_config.get('protocol_dir', 'configs/data'))
-        if not protocol_path.is_absolute():
-            protocol_path = REPOSITORY_ROOT / protocol_path
-        protocol, normalization_config, evaluation = load_protocol(protocol_path)
-        metadata_config = data_config["metadata"]
-        metadata = VolumeMetadata(
-            sample_id=str(metadata_config.get("sample_id", "berea")),
-            source_core_id=str(metadata_config.get("source_core_id", "berea_2d25um")),
-            shape_xyz=tuple(int(value) for value in metadata_config["shape_xyz"]),
-            voxel_spacing_um_xyz=tuple(
-                float(value) for value in metadata_config["spacing_um_xyz"]
-            ),
-            dtype=str(metadata_config.get("dtype", "uint8")),
-            endianness=str(metadata_config.get("endianness", "not-applicable")),
-            normalization_id=str(normalization_config["normalization_id"]),
-            storage_order=str(metadata_config.get("storage_order", "XYZ")),
-        )
-        manifest_path = Path(data_config["manifest"])
-        if not manifest_path.is_absolute():
-            manifest_path = REPOSITORY_ROOT / manifest_path
-        records = read_crop_manifest(manifest_path)
-        validate_protocol_records(records, protocol, evaluation)
-        if (metadata.shape_xyz != tuple(protocol['source_shape_xyz'])
-            or metadata.voxel_spacing_um_xyz != tuple(protocol['voxel_spacing_um_xyz'])
-            or metadata.storage_order != protocol['storage_order']):
-            raise ValueError('training metadata differs from canonical XYZ protocol')
-        validate_spatial_split(
-            records,
-            volume_shape_xyz=metadata.shape_xyz,
-            minimum_buffer_voxels=int(data_config.get("minimum_buffer_voxels", 32)),
-        )
+        raw_path, metadata, records, normalization_config, _ = read_berea_context(data_config)
         shared = {
             "path": raw_path,
             "metadata": metadata,
@@ -359,7 +273,6 @@ def main() -> None:
                 "checkpoint_metric": "primary_mae", "metric_range_policy": "clip_0_1"}
     source_data = config["data"].get("source", config["data"])
     if source_data.get("mode") == "berea_manifest":
-        from theme26.training.workflow import read_berea_context
         raw_path, _, _, _, protocol_id = read_berea_context(source_data)
         metadata.update(source_raw_sha256=file_hash(raw_path), protocol_sha256=protocol_id)
     start_epoch = 1
