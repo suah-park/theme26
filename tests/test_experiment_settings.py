@@ -13,6 +13,28 @@ spec.loader.exec_module(entry)
 
 
 class ExperimentSettingsTests(unittest.TestCase):
+    def test_train_and_inference_share_model_resolution(self):
+        import torch
+        from theme26.training.workflow import build_stage_model
+        for stage in ("ami", "rfn"):
+            with self.subTest(stage=stage):
+                raw = {"model": {"settings": "configs/model/saint_x4.yaml", "profile": stage + "_cpu"}}
+                resolved = entry._load_config(ROOT / f"configs/experiments/smoke/e1_{stage}_synthetic.yaml")
+                torch.manual_seed(42)
+                train_model = entry._build_model(resolved, stage)
+                torch.manual_seed(42)
+                inference_model = build_stage_model(raw, stage)
+                self.assertEqual(train_model.state_dict().keys(), inference_model.state_dict().keys())
+                for key in train_model.state_dict():
+                    self.assertTrue(torch.equal(train_model.state_dict()[key], inference_model.state_dict()[key]))
+
+    def test_inference_rejects_hidden_overrides_and_unknown_profiles(self):
+        from theme26.training.workflow import build_stage_model
+        with self.assertRaisesRegex(ValueError, "overrides"):
+            build_stage_model({"model": {"settings": "configs/model/saint_x4.yaml", "profile": "ami_cpu", "feature_channels": 8}}, "ami")
+        with self.assertRaisesRegex(ValueError, "unknown model profile"):
+            build_stage_model({"model": {"settings": "configs/model/saint_x4.yaml", "profile": "ami_unknown"}}, "ami")
+
     def test_cpu_configs_resolve_shared_profiles(self):
         for path in (ROOT/'configs/experiments').rglob('e1_*.yaml'):
             if path.stem.endswith(('target', 'gpu_pilot')):
