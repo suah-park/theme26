@@ -74,6 +74,13 @@ class RawVolumeTests(unittest.TestCase):
         self.assertAlmostEqual(float(normalized[0, 0, 1]), 128 / 255)
         pore = to_pore_mask((raw == 0).astype(np.uint8), source_pore_value=1)
         np.testing.assert_array_equal(pore, raw == 0)
+        np.testing.assert_array_equal(to_pore_mask(1 - (raw == 0).astype(np.uint8), source_pore_value=0), raw == 0)
+        clipped = normalize_grayscale(np.array([0, 10, 20, 30], dtype=np.uint8).reshape(1, 1, 4), lower=10, upper=20)
+        np.testing.assert_array_equal(clipped, np.array([0, 0, 1, 1], dtype=np.float32).reshape(1, 1, 4))
+        with self.assertRaises(ValueError):
+            normalize_grayscale(raw, lower=10, upper=10)
+        with self.assertRaises(ValueError):
+            to_pore_mask(np.array([[[0, 2]]], dtype=np.uint8), source_pore_value=0)
 
 
 class CropAndSamplingTests(unittest.TestCase):
@@ -136,6 +143,32 @@ class CropAndSamplingTests(unittest.TestCase):
         self.assertEqual(tuple(coronal["input"].shape), (3, 4, 4))
         self.assertEqual(tuple(coronal["target"].shape), (1, 4, 8))
         self.assertEqual(tuple(sagittal["fdm"].shape), (2, 3, 3))
+
+    def test_x4_sampling_and_observed_consistency(self) -> None:
+        dense = np.broadcast_to(np.arange(8, dtype=np.float32), (2, 3, 8)).copy() / 7.0
+        sample = make_sparse_sample(dense, sampling=SamplingSpec(factor=4))
+        self.assertEqual(sample.observed_indices, (0, 4))
+        self.assertEqual(sample.sparse_volume.shape, (2, 3, 2))
+        self.assertEqual(int(sample.primary_metric_mask.sum()), 18)
+        e0 = linear_interpolate_z(sample)
+        np.testing.assert_allclose(e0[..., :5], dense[..., :5])
+        np.testing.assert_array_equal(e0[..., 5:], np.broadcast_to(dense[..., 4:5], (2, 3, 3)))
+        full = compose_full_volume(np.zeros_like(dense), sample)
+        np.testing.assert_array_equal(full[..., (0, 4)], dense[..., (0, 4)])
+        self.assertFalse(full[..., 1].any())
+
+    def test_protocol_256_depth_has_64_observed_and_189_primary_slices(self) -> None:
+        sample = make_sparse_sample(np.zeros((1, 1, 256), dtype=np.float32), sampling=SamplingSpec())
+        self.assertEqual(sample.sparse_volume.shape, (1, 1, 64))
+        self.assertEqual(len(sample.observed_indices), 64)
+        self.assertEqual(int(sample.primary_metric_mask.sum()), 189)
+        self.assertFalse(sample.primary_metric_mask[..., 253:].any())
+
+    def test_rejects_invalid_dtype_and_unaligned_crop(self) -> None:
+        with self.assertRaises(TypeError):
+            make_sparse_sample(self.dense.astype(np.float64), sampling=SamplingSpec())
+        with self.assertRaises(ValueError):
+            extract_aligned_crop(self.dense, self.pore[:-1], crop=CropSpec((0, 0, 0), (1, 1, 1)))
 
     def test_manifest_ami_dataset_reads_marginals_lazily(self) -> None:
         raw = np.rint(self.dense * 255).astype(np.uint8)

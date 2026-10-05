@@ -1,409 +1,120 @@
-# Research Protocol
+# 연구 기준: Berea sparse-Z reconstruction
 
-## 1. Objective
+실험 설계와 모델 설정의 단일 설명 문서입니다. 명령어는 [E1 실행 안내](e1_execution.md), API는 [인터페이스](interface_contract.md)를 따릅니다. 수치 설정의 실행 기준은 `configs/` YAML입니다.
 
-SAINT를 grayscale sandstone Micro-CT에 적용하여 sparse z-slice로부터 dense 3D volume을 복원하고, 영상 품질, pore topology와 z-direction transport property를 함께 평가합니다.
+## 1. 연구 질문과 범위
 
-연구는 다음 비교로 구성합니다.
+Filtered grayscale Berea Micro-CT의 synthetic x4 sparse-Z 입력에서 SAINT가 linear interpolation보다 누락 단면을 잘 복원하며, gradient 및 3D connectivity-aware objective가 경계·연결성·물성 보존을 개선하는지 평가합니다.
 
-1. Linear interpolation과 learned SAINT 비교
-2. L1 baseline과 gradient regularization 비교
-3. Gradient baseline과 3D topology-aware fine-tuning 비교
+- 데이터: 11 Sandstones: Raw, Filtered and Segmented Data, DOI `10.17612/F4H1-W124`, ODC-By 1.0. 실제 사용 sample은 Berea 한 core입니다.
+- 입력과 reconstruction target은 grayscale입니다. Binary는 E3 auxiliary topology target 및 공통 topology/physics 평가 reference입니다.
+- 제외: x2/x6 primary 실험, raw-grayscale robustness, binary-only reconstruction, GAN/diffusion/architecture search, persistent-homology 또는 permeability training loss, 실제 LR/HR scanner pair 주장.
+- Dense train 구역 확보 비용도 해석에 포함합니다. 실제 장비 시간·비용 75% 감소나 unseen-core 일반화를 입증했다고 주장하지 않습니다.
 
-## 2. Scope
+## 2. 고정 데이터 기준
 
-### Included
+| 항목 | 기준 |
+|---|---|
+| Source | `Berea_2d25um_grayscale_filtered.raw`, `Berea_2d25um_binary.raw` |
+| Shape / dtype | `1000³`, `uint8` |
+| 저장 해석 | C-order `[X,Y,Z]` 직접 읽기, transpose 없음 |
+| HR spacing | `(2.25,2.25,2.25)` µm; sparse Z 간격 9.0 µm |
+| Crop | `256³`, 물리적 한 변 576 µm |
+| 내부 binary | `True/1=pore`, `False/0=solid`; source pore label 0 |
+| 정규화 | train slab의 p0.5/p99.5: `clip(raw,2,184)` 후 `(raw-2)/182`, float32 `[0,1]` |
+| 정규화 ID | `berea-train-xyz-p0.5-p99.5-v2`; train voxel 400,000,000 |
+| 공간 기준 version | `berea-spatial-xyz-v2` |
 
-- 11 Sandstones filtered grayscale
-- Berea 한 core의 비중첩 공간 train/validation/test split
-- `256 x 256 x 256` crop
-- Z축 x4 sparse sampling
-- SAINT AMI/RFN reimplementation
-- L1, 2D gradient와 3D soft Dice + soft-clDice
-- Grayscale, morphology, connectivity와 permeability 평가
+각 원본의 출처 URL/DOI, 다운로드 시점, 파일명, SHA256, shape/dtype/endianness/spacing, intensity statistics와 artifact notes를 기록합니다. Binary shape·저장 해석·grayscale alignment·pore polarity는 E3/평가 전에 실제 파일에서 확인해야 합니다.
 
-### Excluded
+### 공간 분할
 
-- x2/x6 primary experiments
-- Raw-grayscale robustness
-- Binary-only reconstruction
-- GAN, diffusion와 architecture search
-- Persistent-homology 및 permeability training loss
-- 실제 LR/HR scanner pair 주장
-- Test set 기반 threshold 또는 hyperparameter 선택
+| 구역 | X 범위 (끝 제외) | 사용 |
+|---|---|---|
+| Train | `[0,400)` | crop seed 2026으로 고정한 48개; train crop끼리 겹칠 수 있음 |
+| Buffer | `[400,432)` | 사용하지 않음 |
+| Validation | `[432,688)` | 고정 9개; 모델 선택 |
+| Buffer | `[688,720)` | 사용하지 않음 |
+| Test | `[720,976)` | 고정 9개; 최종 평가 |
+| 나머지 | `[976,1000)` | 사용하지 않음 |
 
-## 3. Dataset
+Y/Z는 `[0,1000)`. 평가 Y/Z origin은 `{0,372,744} × {0,372,744}`이며 X는 각 slab 시작입니다. 먼저 공간을 분리하고 crop이 해당 구역에 완전히 포함되도록 합니다. 32-voxel buffer가 공간적 독립성을 보장한다는 주장은 하지 않습니다.
 
-### Source
+`configs/data/berea_split.yaml`은 구역, `berea_normalization.yaml`은 정규화, `berea_eval_crops.yaml`은 평가 좌표·metadata, `berea_crops.yaml`은 모델용 train/validation/test record입니다. 겹치는 평가 좌표는 코드가 일치 여부를 검사합니다. Test나 개별 crop에 맞춰 기준을 다시 정하지 않습니다.
 
-- Name: 11 Sandstones: Raw, Filtered and Segmented Data
-- Portal: <https://digitalporousmedia.org/datasets/317/>
-- DOI: <https://doi.org/10.17612/F4H1-W124>
-- License: ODC-By 1.0
-- Source shape: `1000 x 1000 x 1000`
-- Voxel spacing: `2.25 um` isotropic
-- Primary grayscale: `*_grayscale_filtered.raw`
-- Topology reference: aligned binary volume
+### Sparse sampling과 최종 출력
 
-Binary volume은 grayscale 모델의 입력 또는 reconstruction target이 아닙니다. E3 training/validation의 auxiliary topology target과 모든 모델의 공통 평가 reference로 사용합니다.
+- Z factor 4, offset 0: dense `[256,256,256]` → sparse `[256,256,64]`.
+- Observed 64장: `0,4,...,252`. Missing 192장 중 양쪽 관측 사이의 189장만 primary입니다.
+- Tail `253,254,255`는 boundary diagnostic. E0는 마지막 observed slice를 replicate합니다.
+- AMI/RFN 중간 출력과 학습 loss는 raw prediction을 사용합니다. 최종 추론·영상 평가에서는 `[0,1]`로 clipping합니다.
+- 최종 volume에는 관측 단면을 입력값으로 재삽입합니다. 저장 output은 float32 `[X,Y,Z]` grayscale이며 E3도 binary를 최종 output으로 만들지 않습니다.
 
-### Provenance
+## 3. SAINT 구조
 
-각 source core에 다음 metadata를 저장합니다.
+공유 구조의 실행 기준은 `configs/model/saint_x4.yaml`입니다. 원본 SAINT(CVPR 2020) 공개 코드는 구조·tensor flow의 reference이고 현대 PyTorch로 독립 구현합니다. 문서만으로 upstream과 완전 동일함을 주장하지 않습니다.
 
-```text
-dataset_doi
-download_url
-download_date
-source_filename
-checksum_sha256
-shape_xyz
-dtype
-endianness
-voxel_spacing_um_xyz
-intensity_statistics
-artifact_notes
-```
+| 설정 | AMI target | RFN target | CPU 검사 profile |
+|---|---:|---:|---:|
+| Feature channels | 64 | 64 | 8 |
+| Kernel | 3 | 3 | 3 |
+| Residual-dense blocks | 6 | 4 | 1 |
+| Layers/block | 8 | 6 | 2 |
+| Growth rate | 32 | 12 | 4 |
 
-Shape, dtype와 endianness는 파일명만 보고 추정하지 않고 metadata와 file size로 확인합니다.
+AMI factor는 4이며 Z만 upsample합니다. Fixed-X sagittal `[Y,Z]`와 fixed-Y coronal `[X,Z]`에 같은 AMI 가중치를 사용합니다. 입력 3채널은 현재 plane과 양옆 이웃이며 가장자리 이웃은 replicate합니다. AMI output은 `[B,1,L,4*Z_lr]`입니다.
 
-### Split
+FDM `[1 또는 B,4,3,3]`은 µm 단위입니다. Sagittal in-plane spacing은 `sy`, coronal은 `sx`, Z는 `sz`입니다. Dynamic-filter generator는 3×3 padding-1 convolution의 `1→32→64→64→64→C` 구조이며 마지막 이외 단계에 ReLU를 적용하고 `[B,R,C,K,K]`를 만듭니다. Phase 0을 포함한 모든 phase를 예측하며 observed 보존은 최종 조립에서 수행합니다.
 
-주 실험은 Berea만 사용한다. 한 core의 train 구역에서 학습하여 같은 core의 별도 구역을
-x4 sparse-z 입력으로 복원한다. 새로운 core 일반화는 이번 주 실험의 범위가 아니다.
+RFN은 같은 Z의 두 방향 axial 결과 `[B,2,X,Y]`를 받아 `I_avg + RFN_residual`로 fusion합니다. Target은 grayscale `[B,1,X,Y]`입니다. 전체 3D forward와 큰 볼륨용 batched inference를 구분합니다.
 
-| Split | X (끝 제외) | Y/Z | Crop |
-|---|---|---|---|
-| Train | [0,400) | [0,1000) | train 구역 내 random 256³ |
-| Validation | [432,688) | [0,1000) | 고정 9개 |
-| Test | [720,976) | [0,1000) | 고정 9개 |
+## 4. 비교 실험과 loss
 
-구역 사이 32-voxel buffer는 사용하지 않는다. 이 값은 초기 설계이며 공간적 독립성의 증거가 아니다.
-평가 Y/Z origins는 {0,372,744} × {0,372,744}이고 각 split의 X 시작에 배치한다.
-먼저 구역을 분리한 뒤 그 안에 완전히 포함되는 crop만 생성한다.
-Validation/test의 dense grayscale은 선택/평가 정답으로만 사용하고 모델 입력은 sparse다.
-Split·평가 좌표·offset은 성능 결과 확인 전에 고정하며 seed마다 변경하지 않는다.
+| ID | Objective | 시작·학습 방식 |
+|---|---|---|
+| E0 | Z linear interpolation | deterministic, 학습 없음 |
+| E1 | 전체 raw output L1 | AMI 학습 → frozen 두 방향 cache → RFN 학습 |
+| E2 | L1 + 0.10 × gradient | E1과 같은 구조·데이터·budget 비교; 초기화 규칙은 본학습 전 결정 |
+| E3 | L1 + 0.10 × gradient + 0.10 × topology | 같은 seed E2 best에서 AMI freeze, RFN fine-tuning |
 
-## 4. Data Contract
+모든 비교는 같은 split/crop/sampling/normalization을 사용합니다. Headline learned seeds는 1/2/3, debug seed는 0이며 데이터 crop seed 2026과 구분합니다. E0는 seed 반복이 없습니다.
 
-Canonical axis는 `[X,Y,Z]`입니다.
+- L1은 절대 밝기 오차입니다. AMI/RFN 모두 전체 2D raw output에 적용하며 binary target은 쓰지 않습니다.
+- Gradient loss는 역전파 gradient가 아니라 영상의 인접 픽셀 밝기 차이입니다. `mean(|Dx(pred)-Dx(target)|)+mean(|Dy(pred)-Dy(target)|)`를 사용합니다. 2D/3D 함수는 있으나 E2 loop는 미구현이며 observed–missing 경계의 mask 규칙은 별도 결정합니다.
+- E3는 assembled 3D grayscale에서 `sigmoid((threshold-I_final)/temperature)`를 만들어 aligned binary pore target과 비교합니다. `topology=0.5 softDice + 0.5 soft-clDice`. Observed 단면은 상수로 조립하고 그 위치로 gradient가 흐르지 않게 합니다.
+- Soft-clDice는 connectivity surrogate이며 완전한 위상 보장이 아닙니다. Hard connected-component/물성 solver는 학습 graph에 넣지 않습니다.
 
-```text
-NumPy dense volume:       [X,Y,Z]
-Torch dense batch:        [B,C,X,Y,Z]
-NumPy preprocessing mask: [X,Y,Z]
-Torch training mask:      [B,1,X,Y,Z]
-```
+## 5. 학습과 모델 선택
 
-### Grayscale
+- E1 best: `[0,1]` clipping 후 validation bracketed missing-only MAE. Raw train/validation L1은 별도 기록합니다.
+- E2 예정 선택 기준: validation primary MAE. E3 예정 선택 기준: validation total E3 loss. Test는 선택·tuning에 사용하지 않습니다.
+- 기존 실행값: Adam, lr `1e-4`, weight decay 0, gradient clipping norm 1.0. 현재 GPU pilot은 target 모델, batch 1, 1 epoch, train/validation 각각 1-step, AMP off, workers 0입니다.
+- 본학습 batch/epochs는 `null`이며 GPU memory·속도 probe 후 결정합니다. AMP/workers/batch를 변경하면 다시 probe합니다. Full validation과 one-batch overfit은 1-step pilot과 다릅니다.
+- GPU 자원 문제를 해결하려고 crop·factor·모델·split을 임의로 바꾸지 않습니다. 배치/AMP/chunking을 먼저 검토합니다. Accumulation/checkpointing은 현재 실행 옵션이라고 가정하지 않습니다.
+- AMI 실제 sample 수는 train `48×512=24,576`, validation `9×512=4,608`. RFN train은 모든 256 axial phase, validation은 crop당 primary 189 phase입니다.
 
-```text
-Source: uint8 [0,255]
-Model:  float32 [0,1]
-```
+## 6. 평가와 기록
 
-Normalization parameters는 train 구역만으로 추정하고 모든 split과 모델에 동일하게 사용합니다.
+최종 clipping·observed reinsertion 후 등록 ROI를 사용합니다. Grayscale은 primary mask, topology/physics는 동일한 frozen segmentation의 3D pore mask에서 비교합니다.
 
-### Binary
+| 범주 | 예정 지표 |
+|---|---|
+| 영상 | MAE, PSNR(range 1), SSIM, gradient MAE, phase 1/2/3별 오차, tail diagnostic, 추론 시간·peak GPU memory |
+| 구조·위상 | Dice/IoU, porosity, specific surface area, pore-size distribution, Euler characteristic density, component 통계, largest connected pore ratio, Z-percolation/failure |
+| 물성 | Z-tortuosity, single-phase Z-permeability, permeability log error, percolation failure |
 
-```text
-Internal convention: pore=1, solid=0
-```
+동일한 spacing·solver/version·inlet/outlet·boundary condition·convergence를 적용합니다. Non-percolating prediction에 임의의 작은 permeability를 대입하지 않고 failure로 보고합니다. Segmentation operator/threshold는 train/validation에서만 정합니다. 제공된 binary reference와 grayscale의 threshold-derived mask를 혼동하지 않습니다.
 
-Loader는 source polarity를 확인해 내부 convention으로 한 번만 변환합니다.
+동일 held-out block의 paired comparison을 사용하고 seed별·block별 값과 평균/분산을 보존합니다. Slice/voxel이나 같은 core의 block을 독립 암석 표본으로 세지 않습니다.
 
-### Crop
+Run/prediction/metric에는 experiment/config/Git commit, seed, source SHA/DOI/core, split/normalization version, crop 좌표·shape, XYZ 해석·spacing, factor/offset, checkpoint epoch, loss/weights를 연결합니다. E3·평가 구현 시 soft threshold/temperature/iterations, segmentation/topology version, solver/version도 기록합니다. 현재 E1의 metadata 저장이 미래 평가 필드까지 구현했다는 뜻은 아닙니다.
 
-- Shape: `[256,256,256]`
-- Origin: `[x0,y0,z0]`
-- Grayscale과 binary에 같은 origin 적용
-- Validation/test origin은 manifest에 기록
+## 7. 남은 구현·결정
 
-## 5. Sparse Sampling
+- GPU target pilot, 한 batch overfit, 본학습 budget 및 서버 제출 규칙 확인.
+- E2 초기화·gradient 경계 정책 동결 및 loop 연결.
+- Binary 실제 alignment/polarity 검증; E3 soft threshold/temperature/iterations 결정, soft Dice/clDice backward와 connected/disconnected/constant phantom 검사, RFN 3D fine-tuning 구현.
+- SSIM 구현/window, hard segmentation, topology 지표, tortuosity/permeability solver·조건 및 empty-phase 정책 동결·구현.
+- Seeds 1/2/3 본학습, frozen inference와 최종 test evaluation.
 
-Z축 sampling은 factor 4를 사용합니다.
-
-```text
-observed index = offset + 4*k
-```
-
-Offset 0, depth 256의 예:
-
-```text
-observed: 0, 4, 8, ..., 252       # 64 slices
-missing:  all other indices        # 192 slices
-primary:  1..251 중 bracketed 값  # 189 slices
-boundary: 253, 254, 255            # diagnostic only
-```
-
-Primary image metric은 양쪽에 observed slice가 존재하는 `primary_metric_mask`에서 계산합니다. E0는 full-volume export를 위해 마지막 observed slice를 boundary에 복사할 수 있지만, 그 값은 primary image metric에서 제외합니다. Learned model과 E0는 동일한 primary mask로 비교합니다.
-
-## 6. SAINT Model
-
-### AMI
-
-Sparse volume을 sagittal과 coronal marginal slice로 나누어 shared AMI에 입력합니다.
-
-```text
-Sagittal: fixed X -> [Y,Z]
-Coronal:  fixed Y -> [X,Z]
-```
-
-AMI는 다음 요소를 포함합니다.
-
-- Residual-dense feature learner
-- Physical spacing을 이용한 Filter Distance Matrix
-- Dynamic filter generation
-- Z축 anisotropic sub-pixel reconstruction
-
-3 input channels은 RGB가 아니라 인접한 marginal slice 세 장입니다.
-
-### RFN
-
-Sagittal과 coronal 방향에서 생성한 dense volume을 axial grid에 정렬하고 RFN으로 fusion합니다.
-
-```text
-I_avg   = (I_sag + I_cor) / 2
-I_final = I_avg + RFN_residual(I_sag, I_cor)
-```
-
-최종 출력은 dense grayscale volume입니다.
-
-### Upstream reference
-
-- Paper: SAINT, CVPR 2020
-- Code: <https://github.com/cpeng93/SAINT>
-- Documented environment: Python 3.7, PyTorch 1.0
-
-Upstream은 구조, tensor flow와 학습 동작을 확인하기 위한 reference로 사용합니다. 이 저장소에는 현대 PyTorch 기반 독립 구현을 작성하고, 차이가 있는 부분은 PR에서 명시합니다. Upstream source를 그대로 복사하지 않습니다.
-
-구현 전 확인 항목:
-
-- Stage 1/2 tensor shape
-- x4 output alignment
-- FDM coordinate와 spacing semantics
-- `n_colors=3`의 의미
-- AMI/RFN stage별 L1 적용 범위
-- Checkpoint와 implementation의 알려진 차이
-
-## 7. Experiments
-
-| ID | Method | Objective | Seeds |
-|---|---|---|---:|
-| E0 | Linear z interpolation | None | deterministic |
-| E1 | SAINT baseline | L1 | 1, 2, 3 |
-| E2 | Gradient ablation | L1 + `0.10 * gradient` | 1, 2, 3 |
-| E3 | Topology-aware fine-tuning | L1 + `0.10 * gradient` + `0.10 * topology` | 1, 2, 3 |
-
-### E1
-
-AMI와 RFN을 stage별로 학습합니다. E1은 두 stage 모두 전체 출력 L1을 사용합니다. Primary evaluation mask와 training-loss mask는 별개입니다. 최종·validation metric은 [0,1] clipping 후 primary mask에서 계산합니다.
-
-### E2
-
-E1과 architecture, data split, optimizer, training budget와 checkpoint rule을 동일하게 유지하고 gradient term만 추가합니다.
-
-```text
-L_grad = |Dx(pred)-Dx(target)| + |Dy(pred)-Dy(target)|
-L_E2   = L1 + 0.10 * L_grad
-```
-
-Gradient는 역전파 gradient가 아니라 인접 pixel의 grayscale intensity 차이입니다.
-
-### E3
-
-각 seed의 E2 best checkpoint에서 시작하고 AMI를 고정한 상태에서 RFN을 fine-tuning합니다.
-
-Observed slice와 predicted missing slice를 조립한 3D grayscale volume을 soft pore probability로 변환합니다. 낮은 intensity가 pore인 경우:
-
-```text
-P_pred = sigmoid((threshold - I_final) / temperature)
-```
-
-```text
-L_topology = 0.5 * L_softDice + 0.5 * L_soft-clDice
-L_E3       = L1 + 0.10 * L_grad + 0.10 * L_topology
-```
-
-- Threshold, temperature와 skeletonization iterations는 training/validation에서 정해 config에 고정합니다.
-- Observed slice는 상수로 조립하여 해당 위치를 통해 gradient가 흐르지 않게 합니다.
-- Soft-clDice는 connectivity surrogate이며 완전한 topology 보장을 의미하지 않습니다.
-- Permeability와 hard connected-component 연산은 training graph에 포함하지 않습니다.
-
-## 8. Training and Selection
-
-### Stage order
-
-```text
-Data audit
--> CPU smoke test
--> one-batch GPU overfit
--> E0
--> E1 AMI/RFN
--> E2
--> E3
--> frozen inference
--> image/topology/physics evaluation
-```
-
-### Checkpoints
-
-- E1/E2: validation primary-mask MAE
-- E3: validation total E3 loss
-- Test metrics는 checkpoint 선택에 사용하지 않음
-
-### Reproducibility
-
-- Debug seed: 0
-- Headline seeds: 1, 2, 3
-- Split, validation/test crop과 offset은 seed와 무관하게 고정
-- Experiment config와 Git commit 기록
-
-## 9. Evaluation
-
-### Grayscale
-
-Primary mask에서 다음을 계산합니다.
-
-- MAE
-- PSNR with data range 1.0
-- SSIM with a frozen implementation/window
-
-Supporting metrics:
-
-- Gradient MAE
-- Error by relative interpolation position
-- Boundary diagnostic
-- Inference time와 peak memory
-
-### Full-volume construction
-
-1. Prediction을 HR Z-grid에 정렬합니다.
-2. Observed slice를 입력 grayscale로 교체합니다.
-3. 등록된 ROI를 적용합니다.
-4. 동일한 frozen segmentation operator를 적용합니다.
-
-### Structure and topology
-
-- Dice and IoU
-- Absolute porosity error
-- Specific surface area error
-- Pore-size distribution distance
-- Euler characteristic density error
-- Connected-component statistics
-- Largest connected pore ratio
-- z-percolation and failure rate
-
-### Physics
-
-- z-direction tortuosity
-- z-direction single-phase permeability
-- Permeability log error
-
-Prediction이 non-percolating이면 임의의 작은 permeability를 대입하지 않고 percolation failure로 기록합니다. 모든 모델과 ground truth에 동일한 solver, boundary condition, convergence criterion과 physical spacing을 적용합니다.
-
-### Statistical unit
-
-- 사전 등록된 동일 Berea core의 non-overlapping held-out block
-- Slice와 voxel을 독립 표본으로 간주하지 않음
-- 동일 core, crop와 offset의 paired comparison
-- Seed와 block 변동을 분리해 보고; 동일 core block을 독립 암석 표본으로 간주하지 않음
-
-## 10. Run Metadata
-
-각 prediction과 metric 결과에 다음 정보를 연결합니다.
-
-```text
-experiment_id
-git_commit
-config_name
-dataset_doi
-source_core_id
-split_manifest_version
-crop_origin_xyz
-crop_shape_xyz
-normalization_id
-sampling_factor
-sampling_offset
-hr_voxel_spacing_um_xyz
-seed
-loss_name
-loss_weights
-checkpoint_epoch
-segmentation_protocol_version
-topology_protocol_version
-soft_threshold
-soft_temperature
-soft_skeleton_iterations
-```
-
-## 11. Values to Freeze Before Full Training
-
-- Exact Berea train/validation/test regions and buffer
-- Normalization method and parameters
-- Validation/test crop coordinates and sampling offsets
-- AMI/RFN stage loss region
-- Soft threshold, temperature and skeletonization iterations
-- SSIM implementation/window
-- Segmentation operator
-- Permeability solver and boundary conditions
-- Cluster partition, resources and wall time
-
-## 12. Acceptance Checklist
-
-### Data
-
-- [ ] Berea source checksum, shape, dtype와 endianness 확인
-- [ ] Grayscale/binary alignment와 pore polarity 확인
-- [ ] Berea spatial-region split manifest 동결
-- [ ] Normalization config 동결
-- [ ] Aligned `256^3` crop test
-- [ ] x4 sampling과 primary mask test
-
-### Model
-
-- [ ] AMI/RFN output shape test
-- [ ] FDM physical spacing test
-- [ ] One-batch overfit
-- [ ] Observed-slice data consistency test
-- [ ] E1/E2 seeds 1, 2, 3
-
-### Topology
-
-- [ ] Constant, disconnected와 connected phantom test
-- [ ] Soft Dice/soft-clDice backward test
-- [ ] Observed slice gradient-flow test
-- [ ] E3 seeds 1, 2, 3
-
-### Evaluation
-
-- [ ] Primary-mask MAE/PSNR/SSIM
-- [ ] Frozen segmentation
-- [ ] Morphology/connectivity metrics
-- [ ] Permeability solver consistency
-- [ ] Core/block-level result table
-
-## 13. Claim Boundary
-
-학습용 dense train 구역 확보 비용을 포함해 스캔 부담을 논의한다. 본 실험은 synthetic x4
-subsampling을 사용하며 실제 장비 시간/비용 75% 감소를 측정했다고 주장하지 않는다.
-Same-core held-out region 성능만 평가하고 unseen-core 일반화를 주장하지 않는다.
-
-
-권장 표현:
-
-> We evaluate SAINT-based x4 sparse-z reconstruction on held-out grayscale sandstone Micro-CT blocks and compare L1, gradient-regularized and 3D connectivity-aware objectives using image, topology and physical-property metrics.
-
-다음 주장은 하지 않습니다.
-
-- 실제 미관측 pore structure를 유일하게 복원했다.
-- PSNR 향상이 permeability 정확도를 보장한다.
-- 비교하지 않은 모든 방법보다 우수하다.
-- Synthetic sparse sampling이 실제 저해상도 촬영을 완전히 재현한다.
-
-### Integration status
-
-Train crop은 seed 2026으로 만든 고정 48개를 `configs/data/berea_crops.yaml`에 기록한다. 평가 crop은 각 9개다.
-RAW는 모든 경로에서 C-order XYZ로 직접 해석한다. [976,1000) 구역은 사용하지 않는다.
-E1은 clipped validation primary-mask MAE로 checkpoint를 선택한다. AMI raw float32 cache를 RFN에 연결하며 최종 출력에는 관측 단면을 재삽입한다. 자세한 실행·재개는 [E1 실행 안내](e1_execution.md)를 따른다.
-Gradient mask의 양쪽 voxel 포함 정책은 그대로 유지했으며 경계 정책은 별도 결정한다.
+E0/E1 코드 경로와 L1/gradient 함수는 구현되어 있습니다. E2/E3 loop와 과학적 평가 함수는 아직 미구현입니다. CPU/QC 성공은 GPU fit·convergence·복원 성능의 증거가 아닙니다. PSNR 향상만으로 permeability 향상이나 실제 미관측 구조의 유일한 정답을 주장하지 않습니다.

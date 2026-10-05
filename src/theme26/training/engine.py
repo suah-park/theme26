@@ -49,17 +49,6 @@ def _forward_stage(model: nn.Module, batch: TensorBatch, stage: Stage) -> torch.
     raise ValueError(f"unsupported E1 stage: {stage!r}")
 
 
-def _e1_loss(model: nn.Module, batch: TensorBatch, stage: Stage) -> torch.Tensor:
-    prediction = _forward_stage(model, batch, stage)
-    target = batch["target"]
-    if prediction.shape != target.shape:
-        raise ValueError(
-            f"{stage} prediction/target mismatch: "
-            f"{tuple(prediction.shape)} vs {tuple(target.shape)}"
-        )
-    return masked_l1_loss(prediction, target, mask=batch.get("mask"))
-
-
 def _run_epoch(
     model: nn.Module,
     loader: Iterable[TensorBatch],
