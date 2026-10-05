@@ -1,122 +1,80 @@
 # SAINT for Berea Sparse-Z Reconstruction
 
-스캔 부담을 줄이기 위한 주 실험: Berea 한 core의 train 구역에서 학습한 모델이
-같은 core의 별도 구역에서 네 장마다 한 장만 관측하여 누락 단면을 복원하는지 평가합니다.
-Dense Berea에서 synthetic x4 입력을 만드는 실험이며 실제 스캔 비용 절감을 직접 측정한 결과는 아닙니다.
-Binary는 grayscale 입력/정답이 아니라 E3 topology와 평가 reference입니다.
+Berea sandstone의 grayscale Micro-CT에서 네 장마다 한 장을 관측하고 누락 단면을 복원합니다. 같은 core의 별도 공간 구역에서 E0 linear, E1 SAINT L1, E2 gradient, E3 topology-aware fine-tuning을 비교합니다. 실제 스캔 시간 절감이나 다른 core로의 일반화를 직접 입증하는 실험은 아닙니다.
 
-## 고정 공간 분할
+## 어디부터 보면 되나요?
 
-모든 좌표는 canonical XYZ, 끝 좌표는 제외합니다. 원본은 uint8 `1000³`, model crop은 `256³`입니다.
+| 목적 | 읽을 파일 |
+|---|---|
+| 실험 조건·모델 설정·아직 결정할 값 | [연구 기준](docs/research_protocol.md) |
+| 설치·데이터 위치·pilot·학습·추론 실행 | [E1 실행 안내](docs/e1_execution.md) |
+| 코드 구현 시 입력·출력·담당 경로 | [인터페이스 계약](docs/interface_contract.md) |
+| Branch·PR와 코드 공유 규칙 | [기여 안내](CONTRIBUTING.md) |
 
-| Split | X 범위 | Y/Z 범위 | 사용 |
-|---|---|---|---|
-| Train | `[0,400)` | `[0,1000)` | 고정 seed로 만든 48개 crop, 정규화 통계 |
-| Buffer | `[400,432)` | 전체 | 사용하지 않음 |
-| Validation | `[432,688)` | `[0,1000)` | 고정 crop 9개, 모델 선택 |
-| Buffer | `[688,720)` | 전체 | 사용하지 않음 |
-| Test | `[720,976)` | `[0,1000)` | 고정 crop 9개, 최종 평가 |
+실험 수치는 `configs/` YAML, 연구 설계 설명은 연구 기준, 명령어는 실행 안내가 기준입니다. RAW·checkpoint·prediction은 Git에 올리지 않습니다.
 
-각 평가 slab에서 Y/Z 시작 좌표는 `{0,372,744} × {0,372,744}`입니다.
-32-voxel buffer는 초기 설계 값이며 공간적 독립성을 보장한다고 주장하지 않습니다.
-RAW는 C-order XYZ로 직접 해석하며 축을 transpose하지 않습니다. 물성의 Z는 이 좌표계의 Z입니다.
+## 실행에 필요한 파일
 
-## 데이터와 설치
-
-필요한 파일은 Berea 두 개뿐입니다:
-
-- `Berea_2d25um_grayscale_filtered.raw`
-- `Berea_2d25um_binary.raw`
-
-`--data-root`는 두 파일이 직접 있는 디렉터리 또는 `Berea/`의 부모를 받습니다.
-원본은 읽기 전용으로 사용하며 대용량 배열·checkpoint는 Git에 넣지 않습니다.
-
-```bash
-python -m pip install -e .
-# 시각 QC가 필요하면: python -m pip install -e '.[plots]'
-# 모델·학습 환경에는: python -m pip install -e '.[training]'
+```text
+scripts/
+  train.py                    # AMI/RFN 학습 및 재개
+  infer.py                    # AMI cache 생성 및 최종 복원
+configs/
+  data/                       # 고정 공간 분할·정규화·crop 좌표
+  model/saint_x4.yaml          # CPU 검사/목표 모델의 공유 구조
+  experiments/
+    e1_ami_berea_pilot.yaml    # 작은 모델로 실제 데이터 CPU 1-step
+    e1_ami_gpu_pilot.yaml      # 목표 AMI의 GPU 1-step
+    e1_rfn_gpu_pilot.yaml      # AMI cache가 필요한 RFN GPU 1-step
+    e1_ami_target.yaml         # AMI 본학습 템플릿
+    e1_rfn_target.yaml         # RFN 본학습 템플릿
+    smoke/                    # 개발용 합성/단일 crop 연결 검사
+  inference/                  # cache와 최종 복원 설정
+slurm/train_e1.sbatch          # Slurm을 사용하는 서버의 제출 템플릿
 ```
 
-## 전처리와 검증 실행
+Pilot은 성능 결과가 아닙니다. 본학습 batch size와 epochs는 GPU pilot 후 결정하며 현재 템플릿에는 `null`입니다. 서버가 Slurm인지 직접 실행 방식인지는 관리자에게 확인합니다.
+
+## 구현 코드는 어디에 있나요?
+
+```text
+src/theme26/
+  contracts.py    # 공통 metadata·crop·sampling 형식
+  data/           # RAW I/O, crop, sampling, 공간 기준, audit/QC
+  models/saint/   # AMI, FDM, dynamic filter, RFN, 배치 추론
+  training/       # Torch dataset, 학습 engine, cache, checkpoint, 공통 준비
+  losses/         # L1/gradient 구현; topology는 구현할 계약
+  evaluation/     # 팀원이 구현할 image/topology/physics 계약
+tests/            # 작은 CPU 배열로 코드 검증; 연구 test set과 다름
+.github/workflows/tests.yml   # GitHub 자동 CPU 검사
+```
+
+`data/`는 NumPy 데이터 처리, `training/`은 그 데이터를 모델용 Torch batch로 연결합니다. `__init__.py`는 패키지 연결 파일이며 별도 실험이 아닙니다.
+
+## 빠른 CPU 검사
+
+Python 3.10 이상 환경에서 프로젝트와 학습 라이브러리를 설치합니다. GPU용 PyTorch 빌드는 서버 드라이버·GLIBC에 맞춰 먼저 설치합니다.
 
 ```bash
+python -m pip install -e '.[training]'
 python -m unittest discover -s tests -v
+```
+
+실제 Berea 파일 없이 CPU 검사가 가능합니다. 실제 paired RAW가 준비되면 아래 검사도 실행합니다.
+
+```bash
 python -m theme26.data audit --data-root /path/to/Berea --output-dir outputs/audit
 python -m theme26.data qc --data-root /path/to/Berea --output-dir outputs/spatial_qc
 ```
 
-설치하지 않고 실행할 때는 `PYTHONPATH=src`를 설정합니다.
-PowerShell에서는 `$env:PYTHONPATH='src'`를 먼저 실행합니다.
-정규화는 train 구역만의 histogram으로 p0.5/p99.5를 계산하고 모든 split에 같은 값을 적용합니다.
-현재 구역과 제공된 Berea에서 계산한 값은 `2/184`, train voxel 수는 400,000,000입니다.
-동결된 값과 crop 좌표는 `configs/data/`의 YAML에 보존합니다. 파일 또는 구역을 바꾸는 것은
-새 protocol version이 필요한 연구 설계 변경입니다. 예전 8-core 기준 `2/206`은 사용하지 않습니다.
-Source binary의 pore 값은 0이며 내부 mask에서는 `True=pore`입니다.
+## 구현 상태
 
-## tests와 연구 test의 차이
+- 구현: RAW/공간 분할/QC, E0, AMI/RFN forward, L1/gradient 함수, E1 AMI → cache → RFN 학습, 재개·기록·최종 추론.
+- 미구현: E2 gradient 학습 연결, E3 topology 및 fine-tuning, PSNR/SSIM·위상·물성 평가.
+- 별도 검증 필요: 목표 모델의 GPU pilot·overfit·본학습·실제 복원 성능. CPU 검사나 설치 성공만으로 이를 확인했다고 주장하지 않습니다.
 
-`tests/`는 작은 NumPy 배열과 임시 RAW 파일로 구현을 검증합니다. 실제 Berea가 없어도 실행됩니다.
-공간 경계, split 겹침, train-only 통계, 재현성, 단일 상 crop, 잘못된 artifact도 검사합니다.
-연구 test 구역은 실제 Berea `[720,976)`이며 학습한 모델의 최종 성능 평가에 사용합니다.
-전처리 QC PASS는 데이터 형식/정렬/보간 검증이며 학습 성능이나 복원 품질 결과가 아닙니다.
+## 출처
 
-## 코드 구조와 진행 상태
-
-```text
-src/theme26/
-  contracts.py
-  data/          # RAW, crop, sampler, spatial protocol, audit/QC와 data CLI
-  models/saint/  # AMI, FDM, dynamic filter, RFN, 전체 forward
-  losses/        # L1/gradient 구현, topology 스켈레톤
-  evaluation/    # metric 스켈레톤
-  training/      # dataset adapter, engine, checkpoint
-scripts/         # train과 infer 실행 진입점만 유지
-configs/
-  data/          # Berea split, normalization, crop manifest (모두 YAML)
-  model/         # 공유 SAINT architecture profile
-  experiments/   # 실행 설정; smoke는 experiments/smoke/
-tests/           # 합성 데이터 CPU unit tests
-```
-
-전처리, SAINT forward, L1/gradient 함수와 E1 AMI/RFN 학습 엔진은 구현되어 있습니다.
-실제 Berea의 AMI → frozen directional cache → RFN 학습 → 최종 추론·저장 경로가 연결되어 있습니다.
-E2 학습 연결, E3 topology, PSNR/SSIM·위상·물성 지표는 아직 미구현입니다.
-현재 pilot은 작은 모델/1-step 연결 검사 설정이며 본 실험 설정이 아닙니다.
-`TrainRandomCropDataset`은 NumPy `.sample(rng)` sampler입니다. 모델 담당자가 Torch adapter를 연결합니다.
-
-E0=linear interpolation, E1=SAINT L1, E2=L1+0.1 gradient,
-E3=E2에서 AMI를 고정한 RFN topology fine-tuning입니다.
-Sparse `[256,256,64]`, observed slice 64장, primary metric 189장,
-tail z=253..255은 boundary diagnostic입니다. 최종 volume에 observed slice를 재삽입합니다.
-
-## 문서·출처
-
-- [실험·모델 설정 통합본](docs/experiment_model_settings.md)
-- [연구 프로토콜](docs/research_protocol.md)
-- [인터페이스](docs/interface_contract.md)
-- [전처리 인계](docs/data_handoff.md)
-- [데이터](https://digitalporousmedia.org/datasets/317/) / DOI 10.17612/F4H1-W124 / ODC-By 1.0
-- [SAINT 원본](https://github.com/cpeng93/SAINT)
-
-## 통합된 E1 연결
-
-```powershell
-$env:THEME26_GRAYSCALE_RAW = 'C:\path\to\Berea_2d25um_grayscale_filtered.raw'
-python scripts/train.py --config configs/experiments/e1_ami_berea_pilot.yaml --device cpu
-```
-
-학습은 `configs/data/`의 YAML만 읽으며 split, 정규화, 48/9/9 crop 좌표와 version을 검사합니다.
-옛 ZYX 및 424/456/744 기반 artifact/checkpoint는 이번 XYZ 설정의 결과로 재사용하지 않습니다.
-E1은 AMI/RFN 전체 출력 L1로 학습하고, clipping한 validation primary-mask MAE로 best를 선택합니다.
-Gradient observed–missing 경계 정책은 E2 전에 별도 결정합니다.
-학습 중 loss와 checkpoint 기준을 혼동하지 않습니다.
-
-## 공통 모델 설정
-
-`configs/model/saint_x4.yaml`의 `ami_target`/`rfn_target`이 문서의 64-channel 목표 모델이다.
-`ami_cpu`/`rfn_cpu`는 8-channel 연결 검사 모델이며 기존 CPU 실행 설정이 이 profile을 참조한다.
-목표 모델의 GPU pilot과 본학습 YAML 템플릿이 있습니다. 본학습 batch size·기간은 GPU pilot 후 결정하며 템플릿에는 null로 남깁니다.
-YAML에서 `model.settings`와 `model.profile`을 선택하면 학습 코드가 공통 설정을 읽고,
-checkpoint에는 profile 경로와 실제 적용된 모델 값을 함께 저장한다.
-
-단계별 실행, cache, resume, 추론 저장과 Slurm 준비는 [E1 실행 안내](docs/e1_execution.md)를 따릅니다.
+- [11 Sandstones 데이터](https://digitalporousmedia.org/datasets/317/), DOI `10.17612/F4H1-W124`, ODC-By 1.0.
+- [SAINT 원본](https://github.com/cpeng93/SAINT), CVPR 2020. 구조와 학습 동작의 reference이며 이 저장소는 독립 구현입니다.
+- 팀이 올린 논문 PDF는 저장소에 그대로 유지합니다.
