@@ -53,7 +53,7 @@ Final dense volume:        [B, 1, X, Y, Z_hr]
 
 `L`은 sagittal이면 `Y`, coronal이면 `X`이다. AMI의 3채널은 RGB가 아니라 현재 marginal slice와 양옆의 인접 marginal slice이다.
 
-`SparseSample`과 evaluation 함수는 NumPy 단일 volume이므로 mask가 `[X,Y,Z]`이다. DataLoader가 batch를 만들 때 channel과 batch 차원을 추가하여 Torch `[B,1,X,Y,Z]`로 변환한다.
+`SparseSample`과 evaluation 함수는 NumPy 단일 volume이므로 mask가 `[X,Y,Z]`이다. 전체-volume batch는 `[B,1,X,Y,Z]`이며 E1의 실제 DataLoader는 2D plane batch를 만든다: AMI `input=[B,3,L,Z_lr]`, `target/primary_mask=[B,1,L,Z_hr]`; RFN `input=[B,2,X,Y]`, `target/primary_mask=[B,1,X,Y]`.
 
 ### 2.3 Dtype와 값 범위
 
@@ -61,7 +61,9 @@ Final dense volume:        [B, 1, X, Y, Z_hr]
 |---|---|---|
 | 원본 filtered grayscale | `uint8` | `[0,255]` |
 | 정규화 grayscale | `float32` | `[0,1]` |
-| 모델 입력·출력 | `torch.float32` | `[0,1]` |
+| 정규화 모델 입력·정답 | `torch.float32` | `[0,1]` |
+| AMI/RFN raw output, RFN 방향 입력 cache | `float32` | 유한한 raw 값; `[0,1]` 제한 없음 |
+| 최종 저장·영상 metric용 출력 | `float32` | `[0,1]` clipping 후 observed reinsertion |
 | 원본 binary | dataset metadata를 따름 | loader에서 polarity 확인 |
 | 내부 binary | `bool` 또는 `uint8` | `pore=1`, `solid=0` |
 | observed/missing mask | `bool` | 포함 위치가 `True` |
@@ -103,7 +105,7 @@ E0의 마지막 관측 slice 뒤에 남는 위치는 full-volume shape를 완성
 
 ## 4. 공개 API
 
-아래 signature가 모듈 사이의 계약이다. skeleton의 `NotImplementedError`를 담당자가 구현으로 교체한다.
+아래 signature가 모듈 사이의 계약이다. Topology loss와 evaluation의 `NotImplementedError`는 아직 구현할 자리이며, data/model/L1/gradient/E1 연결은 구현되어 있다.
 
 ### 4.1 Data
 
@@ -193,7 +195,7 @@ compute_physics_metrics(predicted_pore, target_pore, *, spacing_um_xyz,
 공개 함수는 다음 조건을 조용히 보정하지 말고 `ValueError` 또는 `TypeError`로 거부한다.
 
 - 잘못된 axis 순서 또는 rank
-- grayscale 범위가 `[0,1]` 밖인 경우
+- 정규화 입력·정답 또는 최종 metric grayscale이 `[0,1]` 밖인 경우 (raw 모델 출력/cache에는 적용하지 않음)
 - binary에 두 label 이외의 값이 있는 경우
 - grayscale/binary/mask shape 불일치
 - `factor < 2`, 유효 범위 밖 offset 또는 crop
@@ -202,15 +204,13 @@ compute_physics_metrics(predicted_pore, target_pore, *, spacing_um_xyz,
 - empty mask에서 metric 계산
 - topology/physics 계산에서 empty pore 또는 empty solid
 
-## 6. 아직 config로 동결할 값
+## 6. 설정 기준과 미확정 값
 
 다음 항목은 API를 바꾸지 않고 `configs/`의 YAML로 동결한다.
 
-- Berea train/validation/test 공간 범위 및 buffer
-- training-only normalization lower/upper와 `normalization_id`
-- validation/test crop 좌표와 sampling offset
+- Berea split, buffer, 정규화, crop 좌표와 offset, E1 all-output L1/primary-MAE 선택은 이미 `configs/`에 고정되어 있다. 숫자는 [연구 기준](research_protocol.md)을 따른다.
 - soft threshold, temperature와 topology protocol version
-- E1/E2 stage별 L1/gradient loss region
+- E2 초기화와 gradient mask의 observed–missing 경계 정책
 - soft-clDice skeletonization iterations
 - SSIM implementation/window
 - permeability solver와 boundary condition
@@ -231,7 +231,7 @@ Test 결과를 본 뒤 위 값을 변경하지 않는다.
 GPU 담당자는 병합 후 실제 데이터 one-batch overfit 및 full-volume smoke test를 실행한다. CPU unit test 통과와 GPU 전체 학습 성공은 서로 다른 acceptance gate이다.
 
 
-## 8. Berea spatial protocol extension
+## 8. 데이터 API와 E1 학습 연결
 
 `configs/data/berea_split.yaml`은 동일 Berea core의 서로 겹치지 않는 region_origin_xyz/region_shape_xyz를
 각 split에 기록한다. 좌표 끝은 제외한다. `CoreSource.region`은 crop 허용 범위이며
@@ -242,8 +242,6 @@ sample에 `region_id`, `normalization_id`, `voxel_spacing_um_xyz`를 보존한�
 단일 상 crop은 binary label의 허용 집합 {0,1} 내에 있으면 전처리한다.
 Source audit와 empty-phase 물성 평가 정책은 별개이다.
 
-### RAW interpretation
+`preprocess_crop`은 grayscale/binary를 같은 좌표로 준비하는 NumPy API이며 QC에서 사용한다. E1은 binary 없이 `ManifestAmiDataset`으로 고정 crop의 2D marginal을 읽는다. `DigitalRockAmiDataset`은 단일 crop 검사에 사용한다. Random sampler와 frozen 48개 학습 경로를 혼동하지 않는다.
 
-`VolumeMetadata.storage_order="XYZ"`만 허용하며 C-order로 직접 읽는다.
-전처리와 학습이 같은 좌표를 사용하고 축 transpose는 하지 않는다.
-`configs/data/` YAML이 구역, 정규화, train/validation/test crop 좌표의 유일한 기준이다.
+모델 profile 해석·생성과 Berea protocol/context 검사는 `training/workflow.py`에서 공유한다. `scripts/train.py`와 `scripts/infer.py`는 이 규칙을 따르는 실행 진입점이다. E1 두 방향 cache·checkpoint·최종 파일의 입출력은 [E1 실행 안내](e1_execution.md)를 따른다.
