@@ -33,14 +33,39 @@ def config_hash(value: dict) -> str:
     return hashlib.sha256(yaml.safe_dump(value, sort_keys=True).encode()).hexdigest()
 
 
-def build_stage_model(config: dict, stage: str):
+def resolve_model_config(config: dict, stage: str) -> dict:
+    if stage not in ("ami", "rfn"):
+        raise ValueError("stage must be ami or rfn")
     values = dict(config["model"])
     if "settings" in values:
+        if set(values) != {"settings", "profile"}:
+            raise ValueError("shared model settings require exactly settings and profile; overrides are not allowed")
         profiles = yaml.safe_load(resolve_path(values["settings"]).read_text(encoding="utf-8"))
         profile = values["profile"]
-        if not profile.startswith(stage + "_"):
+        if not isinstance(profile, str) or not profile.startswith(stage + "_"):
             raise ValueError("model profile does not match stage")
+        if not isinstance(profiles, dict) or profile not in profiles.get("profiles", {}):
+            raise ValueError(f"unknown model profile: {profile}")
         values = dict(profiles["profiles"][profile])
+    return values
+
+
+def load_experiment_config(path: Path) -> dict:
+    config = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(config, dict):
+        raise ValueError("config root must be a mapping")
+    for section in ("experiment", "model", "data", "training"):
+        if not isinstance(config.get(section), dict):
+            raise ValueError(f"config requires a mapping section named {section!r}")
+    if "settings" in config["model"]:
+        reference = dict(config["model"])
+        config["model"] = resolve_model_config(config, config["experiment"].get("stage"))
+        config["model_reference"] = reference
+    return config
+
+
+def build_stage_model(config: dict, stage: str):
+    values = resolve_model_config(config, stage)
     if stage == "ami":
         return AnisotropicMetaInterpolator(**values)
     if stage == "rfn":
@@ -54,10 +79,10 @@ def read_berea_context(data: dict):
     validate_protocol_records(records, protocol, evaluation)
     values = data["metadata"]
     metadata = VolumeMetadata(
-        sample_id=values["sample_id"], source_core_id=values["source_core_id"],
-        shape_xyz=tuple(values["shape_xyz"]), voxel_spacing_um_xyz=tuple(values["spacing_um_xyz"]),
-        dtype=values["dtype"], endianness=values["endianness"],
-        normalization_id=normalization["normalization_id"], storage_order=values["storage_order"],
+        sample_id=str(values.get("sample_id", "berea")), source_core_id=str(values.get("source_core_id", "berea_2d25um")),
+        shape_xyz=tuple(int(v) for v in values["shape_xyz"]), voxel_spacing_um_xyz=tuple(float(v) for v in values["spacing_um_xyz"]),
+        dtype=str(values.get("dtype", "uint8")), endianness=str(values.get("endianness", "not-applicable")),
+        normalization_id=normalization["normalization_id"], storage_order=str(values.get("storage_order", "XYZ")),
     )
     if (metadata.shape_xyz != tuple(protocol["source_shape_xyz"])
         or metadata.voxel_spacing_um_xyz != tuple(protocol["voxel_spacing_um_xyz"])
@@ -67,7 +92,7 @@ def read_berea_context(data: dict):
                            minimum_buffer_voxels=int(data.get("minimum_buffer_voxels", 32)))
     raw = os.environ.get(data.get("path_env", "THEME26_GRAYSCALE_RAW"))
     if not raw:
-        raise ValueError("set the configured grayscale RAW environment variable")
+        raise RuntimeError(f"set environment variable {data.get('path_env', 'THEME26_GRAYSCALE_RAW')} to the grayscale .raw path")
     source_id = config_hash({"protocol": protocol, "normalization": normalization,
                              "evaluation": evaluation,
                              "manifest_sha256": file_hash(resolve_path(data["manifest"]))})
