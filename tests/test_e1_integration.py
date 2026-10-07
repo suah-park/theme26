@@ -147,6 +147,59 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual([x["validation_primary_mae"] for x in full["run_metadata"]["history"]],
                              [x["validation_primary_mae"] for x in resumed["run_metadata"]["history"]])
 
+    def test_progress_resume_preserves_prior_events_and_run_guards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            config = {
+                "experiment": {"id": "progress-resume", "stage": "ami", "seed": 7},
+                "model": {"factor": 4, "feature_channels": 4, "kernel_size": 3,
+                          "num_blocks": 1, "layers_per_block": 1, "growth_rate": 2},
+                "data": {"mode": "synthetic", "length": 5, "z_lr": 3,
+                         "train_samples": 4, "validation_samples": 3},
+                "training": {"batch_size": 1, "epochs": 1, "learning_rate": 0.001,
+                             "mixed_precision": False, "progress_interval_steps": 1},
+            }
+            config_path = root / "config.yaml"
+            config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+            env = dict(os.environ, OMP_NUM_THREADS="1", MKL_NUM_THREADS="1")
+            base = [sys.executable, "-B", str(ROOT / "scripts/train.py"),
+                    "--config", str(config_path), "--device", "cpu",
+                    "--output-dir", str(run_dir)]
+
+            def run(extra, expected_code=0):
+                result = subprocess.run(base + extra, cwd=ROOT, env=env,
+                                        capture_output=True, text=True)
+                self.assertEqual(result.returncode, expected_code,
+                                 result.stdout + result.stderr)
+                return result
+
+            run([])
+            progress_path = run_dir / "progress.yaml"
+            prior = yaml.safe_load(progress_path.read_text(encoding="utf-8"))
+            self.assertEqual([(row["epoch"], row["phase"]) for row in prior],
+                             [(1, "train")] * 5 + [(1, "validation")] * 4)
+            prior_bytes = progress_path.read_bytes()
+            new_result = run([], expected_code=1)
+            self.assertIn("FileExistsError", new_result.stderr)
+            wrong_checkpoint = run(["--resume", str(run_dir / "best.pt"),
+                                    "--epochs", "2"], expected_code=1)
+            self.assertIn("last.pt", wrong_checkpoint.stderr)
+            config["training"]["learning_rate"] = 0.002
+            config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+            mismatch = run(["--resume", str(run_dir / "last.pt"),
+                            "--epochs", "2"], expected_code=1)
+            self.assertIn("resume config differs", mismatch.stderr)
+            self.assertEqual(progress_path.read_bytes(), prior_bytes)
+            config["training"]["learning_rate"] = 0.001
+            config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+            run(["--resume", str(run_dir / "last.pt"), "--epochs", "2"])
+            events = yaml.safe_load(progress_path.read_text(encoding="utf-8"))
+            self.assertEqual(events[:len(prior)], prior)
+            self.assertEqual([row["epoch"] for row in events[len(prior):]], [2] * 9)
+            history = yaml.safe_load((run_dir / "history.yaml").read_text(encoding="utf-8"))
+            self.assertEqual([row["epoch"] for row in history], [1, 2])
+
 
 if __name__ == "__main__":
     unittest.main()

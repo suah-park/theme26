@@ -59,7 +59,56 @@ python scripts/train.py --config configs/experiments/e1_ami_gpu_pilot.yaml --dev
 
 CPU pilot uses the small architecture; GPU pilot uses the target architecture, batch 1 and one train/validation step. These are probes, not scientific results. Check `history.yaml` for elapsed time and peak GPU allocated bytes. Allocated bytes exclude some CUDA/driver memory; compare with `nvidia-smi`. A one-step memory probe does not establish convergence or a full-epoch runtime. Before headline runs, measure a longer pilot and perform a one-batch overfit check. AMP/worker/batch changes require a new probe.
 
+For a longer speed and allocated-memory probe on distinct train marginals, use:
+
+```bash
+python scripts/train.py --config configs/experiments/e1_ami_gpu_throughput_pilot.yaml --device cuda
+```
+
+This separate run uses the target AMI, batch 1, AMP off, 100 train steps and 20
+validation steps. The train loader shuffles without replacement within its epoch;
+validation is evaluated without optimizer updates. `progress.yaml` and stdout record
+start, midpoint and end for each phase, including elapsed wall time, throughput in
+samples/second and peak GPU allocated bytes. `history.yaml` also contains separate
+train/validation elapsed seconds, samples/second, steps/second and peak bytes. Timing
+includes data loading and the phase's progress logging. GPU operations are synchronized
+at each recorded point. Allocated bytes exclude CUDA/driver overhead. This pilot is
+not the full-training budget; an existing destination is refused.
+
+## Fixed train batch overfit diagnostic
+
+After the GPU pilot, run the separate diagnostic below on an authorized GPU. It selects
+`berea_train_000`, sagittal plane 128 from the train manifest and repeats its identical
+AMI input and target for 100 optimizer steps. The target architecture and raw full-output
+L1 match E1. These 100 steps are a diagnostic, not the full-training budget. The
+diagnostic never trains on validation or test records.
+
+```bash
+python scripts/train.py --config configs/experiments/e1_ami_fixed_batch_overfit.yaml --device cuda
+```
+
+The new run directory contains `resolved_config.yaml`, `metadata.yaml`, `history.yaml`,
+`checkpoint.pt`, input/target/primary-mask NPY files, raw prediction NPY files before
+and after training, and `comparison.png`. The PNG layout is before | after on the top
+row and target | primary mask on the bottom row. Prediction values are clipped to
+`[0,1]` only for PNG display. `history.yaml` and stdout report raw L1 on the same
+train input at step 0, every 10 steps, and the final step, with elapsed seconds.
+The start/end comparison measures fixed-sample fit only; it is neither validation
+performance nor evidence of generalization. Choose a fresh `--output-dir` for reruns;
+existing directories are refused.
+
 ## 2. AMI full training
+
+For one complete epoch from a fresh AMI initialization, use the separate
+`configs/experiments/e1_ami_full_epoch1.yaml` config. It processes all 24,576 train
+marginals in 3,072 batches and all 4,608 validation marginals in 576 batches at batch
+size 8, with no step caps. It logs progress every 100 steps and at each phase's end.
+Use its new output directory without `--resume`; the command creates a fresh model
+and refuses an existing run directory.
+
+```bash
+python scripts/train.py --config configs/experiments/e1_ami_full_epoch1.yaml --device cuda
+```
 
 Fill `training.batch_size` and `training.epochs` in `configs/experiments/e1_ami_target.yaml` after inspecting the GPU pilot. These values intentionally remain null until a user decision. They are validated before execution; no epoch/batch budget is guessed. Learning rate remains the existing pilot value `1e-4`. The template keeps workers=0 and AMP off; enable/tune them only after a probe.
 
@@ -97,6 +146,8 @@ python scripts/train.py --config configs/experiments/e1_ami_target.yaml \
 ```
 
 Resume starts at the next saved epoch, not at an interrupted batch. `--epochs` is the total budget, not additional epochs. Use the same run directory and its `last.pt`; best checkpoint and history are preserved. Model, optimizer, AMP scaler, Python/NumPy/Torch RNG and DataLoader shuffle state are restored. Only output directory and epoch budget are excluded from config equality; changing model/data/loss/worker settings requires a new run. GPU bitwise reproducibility is not claimed across devices/software. Old checkpoints without new source/metric/RNG metadata are rejected for resume/cache; old pilot scores are not compared with the new best metric.
+When progress logging is enabled, resumed epochs append to `progress.yaml`; previous
+progress events remain in place.
 
 ## 6. Frozen reconstruction
 
@@ -107,6 +158,29 @@ python scripts/infer.py --config configs/inference/e1_reconstruct.yaml \
 ```
 
 Default split is validation. After freezing the models, use a separate YAML with `split: test` and a new output directory for final test. `--crop-id` can select one registered crop in that split. Inference processes AMI marginals and RFN axial slices in GPU batches. Each crop saves `prediction.npy`, `primary_mask.npy`, `metadata.yaml`; the completed run saves `manifest.yaml`. Metadata includes axes, coordinates, spacing, normalization, source/checkpoint hashes and primary MAE. This implements MAE for E1 checks; PSNR/SSIM, topology and physics evaluation remain separate evaluation work.
+
+The data CLI owns read-only E1 validation QC. Supply the same Berea RAW file used
+for reconstruction and choose a new output directory for each QC run:
+
+```bash
+python -m theme26.data e1-validation-crop \
+  --result-dir runs/e1_validation_smoke_20261007_01/000 \
+  --raw /path/to/Berea_2d25um_grayscale_filtered.raw \
+  --output-dir runs/e1_validation_smoke_20261007_01/qc/new_crop_check
+python -m theme26.data e1-validation-all \
+  --result-dir runs/e1_validation_all_20261007_01 \
+  --cache-dir runs/e1_ami_cache_seed1_ep10_20261007_01 \
+  --ami-checkpoint runs/e1_ami_seed1_ep10_frozen_20261007_01/best.pt \
+  --raw /path/to/Berea_2d25um_grayscale_filtered.raw \
+  --output-dir runs/e1_validation_all_20261007_01/qc/new_comparison
+```
+
+The first command checks one registered crop and writes comparison figures. The
+second checks cache/output/checkpoint identity and compares E0, AMI direction mean,
+and RFN on the nine validation blocks from the same core. Existing
+`scripts/qc_e1_validation_crop.py` and `scripts/qc_e1_validation_all.py` commands
+remain available as compatibility entry points. QC does not update models or
+predictions; its output directories must not already exist.
 
 ## Slurm
 

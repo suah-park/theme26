@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import Iterable, Literal, Mapping
+from itertools import islice
+from typing import Callable, Iterable, Literal, Mapping
 
 import torch
 from torch import nn
@@ -60,6 +61,7 @@ def _run_epoch(
     use_amp: bool,
     gradient_clip_norm: float | None,
     max_steps: int | None,
+    progress_callback: Callable[[int, int], None] | None,
 ) -> EpochResult:
     training = optimizer is not None
     model.train(training)
@@ -69,10 +71,10 @@ def _run_epoch(
     primary_error = 0.0
     primary_voxels = 0
     steps = 0
+    samples = 0
 
-    for batch_index, raw_batch in enumerate(loader):
-        if max_steps is not None and batch_index >= max_steps:
-            break
+    selected_loader = islice(loader, max_steps) if max_steps is not None else loader
+    for batch_index, raw_batch in enumerate(selected_loader):
         batch = _move_batch(raw_batch, device)
         if training:
             optimizer.zero_grad(set_to_none=True)
@@ -119,6 +121,9 @@ def _run_epoch(
             primary_error += float(metric_error.masked_select(metric_mask).sum())
             primary_voxels += int(metric_mask.sum())
         steps += 1
+        samples += int(batch["input"].shape[0])
+        if progress_callback is not None:
+            progress_callback(steps, samples)
 
     if steps == 0:
         raise ValueError("loader produced no training or validation steps")
@@ -138,6 +143,7 @@ def train_one_epoch(
     use_amp: bool = True,
     gradient_clip_norm: float | None = None,
     max_steps: int | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> EpochResult:
     """Train AMI or RFN for one E1 epoch using L1 reconstruction loss."""
 
@@ -153,6 +159,7 @@ def train_one_epoch(
         use_amp=use_amp,
         gradient_clip_norm=gradient_clip_norm,
         max_steps=max_steps,
+        progress_callback=progress_callback,
     )
 
 
@@ -164,6 +171,7 @@ def validate_one_epoch(
     device: torch.device,
     use_amp: bool = True,
     max_steps: int | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> EpochResult:
     """Evaluate one E1 epoch without updating model state."""
 
@@ -177,4 +185,5 @@ def validate_one_epoch(
         use_amp=use_amp,
         gradient_clip_norm=None,
         max_steps=max_steps,
+        progress_callback=progress_callback,
     )

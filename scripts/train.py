@@ -38,6 +38,8 @@ from theme26.training.workflow import (
     build_stage_model as _build_model,
 )
 from theme26.training.synthetic import SyntheticAmiDataset, SyntheticRfnDataset
+from theme26.training.fixed_batch_overfit import run_fixed_batch_overfit, select_train_marginal
+from theme26.training.performance_probe import PhaseProbe
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -223,6 +225,64 @@ def main() -> None:
     experiment = config["experiment"]
     training = config["training"]
     stage = str(experiment.get("stage", "ami"))
+    if experiment.get("diagnostic") == "fixed_batch_overfit":
+        if args.resume is not None or args.epochs is not None:
+            raise ValueError("fixed-batch diagnostic does not accept --resume or --epochs")
+        if stage != "ami" or config["data"].get("mode") != "berea_manifest":
+            raise ValueError("fixed-batch diagnostic requires AMI and Berea manifest")
+        seed = int(experiment["seed"])
+        _set_seed(seed)
+        device = _resolve_device(args.device)
+        raw_path, volume_metadata, records, normalization, protocol_id = read_berea_context(config["data"])
+        selector = config["diagnostic"]
+        matches = [record for record in records if record.sample_id == selector["sample_id"]]
+        if len(matches) != 1 or matches[0].split != "train":
+            raise ValueError("diagnostic sample_id must identify exactly one train record")
+        record = matches[0]
+        dataset = ManifestAmiDataset.from_raw(
+            raw_path, records=(record,), metadata=volume_metadata,
+            normalization_lower=float(normalization["lower"]),
+            normalization_upper=float(normalization["upper"]),
+            kernel_size=int(config["model"].get("kernel_size", 3)),
+        )
+        direction = str(selector["direction"])
+        plane_index = int(selector["plane_index"])
+        batch = select_train_marginal(dataset, sample_id=record.sample_id,
+                                      direction=direction, plane_index=plane_index)
+        output_dir = args.output_dir or Path(config["output_dir"])
+        if not output_dir.is_absolute():
+            output_dir = REPOSITORY_ROOT / output_dir
+        output_dir.mkdir(parents=True, exist_ok=False)
+        (output_dir / "resolved_config.yaml").write_text(
+            yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+        try:
+            git_commit = subprocess.check_output(["git", "rev-parse", "HEAD"],
+                                                  cwd=REPOSITORY_ROOT,
+                                                  stderr=subprocess.DEVNULL, text=True).strip()
+        except (OSError, subprocess.CalledProcessError):
+            git_commit = None
+        metadata = {
+            "purpose": "fixed_train_sample_optimization_diagnostic",
+            "split": "train", "sample_id": record.sample_id,
+            "source_core_id": record.source_core_id,
+            "crop_origin_xyz": list(record.crop.origin_xyz),
+            "crop_shape_xyz": list(record.crop.shape_xyz),
+            "direction": direction, "plane_index": plane_index,
+            "sampling_factor": record.sampling.factor,
+            "sampling_offset": record.sampling.offset,
+            "manifest_version": record.manifest_version,
+            "seed": seed, "device": str(device), "git_commit": git_commit,
+            "config_file_sha256": file_hash(args.config),
+            "source_raw_sha256": file_hash(raw_path), "protocol_sha256": protocol_id,
+            "normalization_id": volume_metadata.normalization_id,
+            "loss": "raw_all_output_l1",
+        }
+        model = _build_model(config, stage).to(device)
+        run_fixed_batch_overfit(model, batch, config=config, output_dir=output_dir,
+                                device=device, metadata=metadata)
+        return
+    if experiment.get("diagnostic") is not None:
+        raise ValueError("unsupported diagnostic")
     if training.get("loss_region", "all") != "all":
         raise ValueError("E1 protocol uses all-output training L1")
     if training.get("checkpoint_metric", "primary_mae") != "primary_mae":
@@ -247,6 +307,23 @@ def main() -> None:
     epochs = args.epochs if args.epochs is not None else int(training["epochs"])
     if epochs < 1:
         raise ValueError("epochs must be at least 1")
+    performance_probe = bool(training.get("performance_probe", False))
+    progress_interval = training.get("progress_interval_steps")
+    if progress_interval is not None and (not isinstance(progress_interval, int)
+                                          or isinstance(progress_interval, bool)
+                                          or progress_interval < 1):
+        raise ValueError("progress_interval_steps must be a positive integer")
+    log_progress = performance_probe or progress_interval is not None
+    if performance_probe:
+        if ((stage, config["data"].get("mode")) not in
+                (("ami", "berea_manifest"), ("rfn", "berea_rfn_cache"))
+                or int(training["batch_size"]) not in (1, 8) or epochs != 1 or args.resume):
+            raise ValueError("performance probe requires one fresh E1 Berea AMI/RFN epoch with batch_size 1 or 8")
+        for key, loader in (("max_steps_per_epoch", train_loader),
+                            ("max_validation_steps", validation_loader)):
+            limit = training.get(key)
+            if not isinstance(limit, int) or isinstance(limit, bool) or not 2 <= limit <= len(loader):
+                raise ValueError(f"{key} must be between 2 and the DataLoader step count")
     output_dir = args.output_dir or Path(
         config.get("output_dir", f"runs/{experiment.get('id', 'e1')}")
     )
@@ -254,9 +331,14 @@ def main() -> None:
         output_dir = REPOSITORY_ROOT / output_dir
 
     best_validation = float("inf")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    if not args.resume and any((output_dir / name).exists() for name in ("last.pt", "best.pt", "history.yaml")):
-        raise FileExistsError("run directory already has results; use --resume or a new output directory")
+    if args.resume:
+        if not output_dir.is_dir():
+            raise FileNotFoundError(f"resume run directory does not exist: {output_dir}")
+    else:
+        output_dir.mkdir(parents=True, exist_ok=not log_progress)
+        if any((output_dir / name).exists() for name in
+               ("last.pt", "best.pt", "history.yaml", "progress.yaml", "resolved_config.yaml")):
+            raise FileExistsError("run directory already has results; use --resume or a new output directory")
     def compatible_config(value):
         value = copy.deepcopy(value)
         value.pop("output_dir", None)
@@ -296,8 +378,17 @@ def main() -> None:
     (output_dir / "resolved_config.yaml").write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
     for epoch in range(start_epoch, epochs + 1):
         started = time.perf_counter()
-        if device.type == "cuda":
+        if device.type == "cuda" and not log_progress:
             torch.cuda.reset_peak_memory_stats(device)
+        train_probe = (PhaseProbe(epoch=epoch, phase="train",
+                                  expected_steps=(training.get("max_steps_per_epoch")
+                                                  if training.get("max_steps_per_epoch") is not None
+                                                  else len(train_loader)),
+                                  device=device, output_dir=output_dir,
+                                  log_interval_steps=progress_interval)
+                       if log_progress else None)
+        if train_probe is not None:
+            train_probe.start()
         train_result = train_one_epoch(
             model,
             train_loader,
@@ -308,7 +399,18 @@ def main() -> None:
             use_amp=use_amp,
             gradient_clip_norm=training.get("gradient_clip_norm"),
             max_steps=training.get("max_steps_per_epoch"),
+            progress_callback=train_probe.on_step if train_probe is not None else None,
         )
+        train_timing = train_probe.finish(train_result.steps) if train_probe is not None else None
+        validation_probe = (PhaseProbe(epoch=epoch, phase="validation",
+                                       expected_steps=(training.get("max_validation_steps")
+                                                       if training.get("max_validation_steps") is not None
+                                                       else len(validation_loader)),
+                                       device=device, output_dir=output_dir,
+                                       log_interval_steps=progress_interval)
+                            if log_progress else None)
+        if validation_probe is not None:
+            validation_probe.start()
         validation_result = validate_one_epoch(
             model,
             validation_loader,
@@ -316,7 +418,10 @@ def main() -> None:
             device=device,
             use_amp=use_amp,
             max_steps=training.get("max_validation_steps"),
+            progress_callback=validation_probe.on_step if validation_probe is not None else None,
         )
+        validation_timing = (validation_probe.finish(validation_result.steps)
+                             if validation_probe is not None else None)
         if validation_result.primary_mae is None:
             raise ValueError("validation has no bracketed missing voxels; increase pilot validation steps")
         selected_metric = validation_result.primary_mae
@@ -328,12 +433,20 @@ def main() -> None:
         )
         improved = selected_metric < best_validation
         best_validation = min(best_validation, selected_metric)
+        if device.type == "cuda":
+            peak_gpu_bytes = (max(train_timing["peak_gpu_allocated_bytes"],
+                                  validation_timing["peak_gpu_allocated_bytes"])
+                              if log_progress else torch.cuda.max_memory_allocated(device))
+        else:
+            peak_gpu_bytes = None
         history.append({"epoch": epoch, "train_l1": train_result.loss,
                         "validation_l1": validation_result.loss, "validation_primary_mae": selected_metric,
                         "primary_voxels": validation_result.primary_voxels,
                         "train_steps": train_result.steps, "validation_steps": validation_result.steps,
                         "elapsed_seconds": time.perf_counter() - started,
-                        "peak_gpu_bytes": torch.cuda.max_memory_allocated(device) if device.type == "cuda" else None})
+                        "peak_gpu_bytes": peak_gpu_bytes,
+                        **({"train_timing": train_timing, "validation_timing": validation_timing}
+                           if log_progress else {})})
         checkpoint_kwargs = {
             "model": model,
             "optimizer": optimizer,

@@ -1,0 +1,41 @@
+# One complete E1 RFN epoch from a fresh initialization.
+experiment:
+  id: e1_rfn_ep10_full_epoch1
+  stage: rfn
+  seed: 1
+model:
+  settings: configs/model/saint_x4.yaml
+  profile: rfn_target
+data:
+  mode: berea_rfn_cache
+  cache_dir: runs/e1_ami_cache_seed1_ep10_20261007_01
+  ami_checkpoint: runs/e1_ami_seed1_ep10_frozen_20261007_01/best.pt
+  source:
+    mode: berea_manifest
+    path_env: THEME26_GRAYSCALE_RAW
+    manifest: configs/data/berea_crops.yaml
+    protocol_dir: configs/data
+    minimum_buffer_voxels: 32
+    metadata:
+      sample_id: berea
+      source_core_id: Berea
+      shape_xyz: [1000, 1000, 1000]
+      spacing_um_xyz: [2.25, 2.25, 2.25]
+      dtype: uint8
+      endianness: not-applicable
+      storage_order: XYZ
+training:
+  loss_region: all
+  checkpoint_metric: primary_mae
+  batch_size: 8
+  epochs: 1
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  mixed_precision: false
+  gradient_clip_norm: 1.0
+  num_workers: 0
+  pin_memory: true
+  max_steps_per_epoch: null
+  max_validation_steps: null
+  progress_interval_steps: 100
+output_dir: runs/e1_rfn_ep10_full_epoch1_20261007_01
