@@ -9,6 +9,7 @@ Berea sandstone의 grayscale Micro-CT에서 네 장마다 한 장을 관측하�
 | 실험 조건·모델 설정·아직 결정할 값 | [연구 기준](docs/research_protocol.md) |
 | 설치·데이터 위치·pilot·학습·추론 실행 | [E1 실행 안내](docs/e1_execution.md) |
 | 코드 구현 시 입력·출력·담당 경로 | [인터페이스 계약](docs/interface_contract.md) |
+| 추론 후 FP64 투과도 평가·결과 읽기 | [물성 평가 안내](docs/evaluation_fp64.md) |
 | Branch·PR와 코드 공유 규칙 | [기여 안내](CONTRIBUTING.md) |
 
 실험 수치는 `configs/` YAML, 연구 설계 설명은 연구 기준, 명령어는 실행 안내가 기준입니다. RAW·checkpoint·prediction은 Git에 올리지 않습니다.
@@ -44,7 +45,7 @@ src/theme26/
   models/saint/   # AMI, FDM, dynamic filter, RFN, 배치 추론
   training/       # Torch dataset, 학습 engine, cache, checkpoint, 공통 준비
   losses/         # L1/gradient 구현; topology는 구현할 계약
-  evaluation/     # 팀원이 구현할 image/topology/physics 계약
+  evaluation/     # FP64 투과도 평가; image/topology는 구현할 계약
 tests/            # 작은 CPU 배열로 코드 검증; 연구 test set과 다름
 .github/workflows/tests.yml   # GitHub 자동 CPU 검사
 ```
@@ -70,8 +71,19 @@ python -m theme26.data qc --data-root /path/to/Berea --output-dir outputs/spatia
 ## 구현 상태
 
 - 구현: RAW/공간 분할/QC, E0, AMI/RFN forward, L1/gradient 함수, E1 AMI → cache → RFN 학습, 재개·기록·최종 추론.
-- 미구현: E2 gradient 학습 연결, E3 topology 및 fine-tuning, PSNR/SSIM·위상·물성 평가.
+- 미구현: E2 gradient 학습 연결, E3 topology 및 fine-tuning, PSNR/SSIM·위상·굴곡도 평가.
 - 별도 검증 필요: 목표 모델의 GPU pilot·overfit·본학습·실제 복원 성능. CPU 검사나 설치 성공만으로 이를 확인했다고 주장하지 않습니다.
+
+## 선택적 FP64 물성 평가
+
+기존 Python 환경에서 `python scripts/evaluate_physics.py doctor`와
+`python scripts/evaluate_physics.py reference-report`로 설치 정보와 기존 기록을 확인합니다.
+이 두 명령은 유동을 실행하지 않습니다. 실제 평가는 저장된 `prediction.npy`와
+`metadata.yaml`에 연결하며 [물성 평가 안내](docs/evaluation_fp64.md)를 따릅니다.
+
+평가 코드·입출력 연결은 구현되어 있으며, 기존 최종본의 FP64 계산식과 fixed-budget 실행을 유지합니다.
+`completed`는 실행 종료이지 정확도 합격이 아닙니다. 이번 통합에서 새 유동 계산을 검증한 것은 아닙니다.
+LBM에는 선택적으로 `python -m pip install -e '.[evaluation]'`을 사용하며 기본 학습 의존성은 유지합니다.
 
 ## 출처
 
