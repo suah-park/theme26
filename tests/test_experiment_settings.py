@@ -13,6 +13,39 @@ spec.loader.exec_module(entry)
 
 
 class ExperimentSettingsTests(unittest.TestCase):
+    def test_throughput_pilot_preserves_gpu_pilot_settings(self):
+        original = yaml.safe_load((ROOT/'configs/experiments/e1_ami_gpu_pilot.yaml').read_text())
+        probe = yaml.safe_load((ROOT/'configs/experiments/e1_ami_gpu_throughput_pilot.yaml').read_text())
+        self.assertEqual(probe['model'], original['model'])
+        self.assertEqual(probe['data'], original['data'])
+        for key, value in original['training'].items():
+            if key not in ('max_steps_per_epoch', 'max_validation_steps'):
+                self.assertEqual(probe['training'][key], value)
+        self.assertEqual(probe['training']['max_steps_per_epoch'], 100)
+        self.assertEqual(probe['training']['max_validation_steps'], 20)
+        self.assertTrue(probe['training']['performance_probe'])
+        self.assertNotEqual(probe['output_dir'], original['output_dir'])
+
+    def test_full_epoch1_uses_all_manifest_marginals(self):
+        from theme26.data import read_crop_manifest
+        target = yaml.safe_load((ROOT/'configs/experiments/e1_ami_target.yaml').read_text())
+        full = yaml.safe_load((ROOT/'configs/experiments/e1_ami_full_epoch1.yaml').read_text())
+        self.assertEqual(full['model'], target['model'])
+        self.assertEqual(full['data'], target['data'])
+        self.assertEqual(full['experiment']['seed'], target['experiment']['seed'])
+        for key in ('learning_rate', 'mixed_precision', 'loss_region', 'checkpoint_metric'):
+            self.assertEqual(full['training'][key], target['training'][key])
+        self.assertEqual((full['training']['batch_size'], full['training']['epochs']), (8, 1))
+        self.assertIsNone(full['training']['max_steps_per_epoch'])
+        self.assertIsNone(full['training']['max_validation_steps'])
+        records = read_crop_manifest(ROOT / full['data']['manifest'])
+        counts = {split: sum(record.crop.shape_xyz[0] + record.crop.shape_xyz[1]
+                             for record in records if record.split == split)
+                  for split in ('train', 'validation')}
+        self.assertEqual(counts, {'train': 24576, 'validation': 4608})
+        self.assertEqual({split: count // 8 for split, count in counts.items()},
+                         {'train': 3072, 'validation': 576})
+
     def test_train_and_inference_share_model_resolution(self):
         import torch
         from theme26.training.workflow import build_stage_model
@@ -37,7 +70,8 @@ class ExperimentSettingsTests(unittest.TestCase):
 
     def test_cpu_configs_resolve_shared_profiles(self):
         for path in (ROOT/'configs/experiments').rglob('e1_*.yaml'):
-            if path.stem.endswith(('target', 'gpu_pilot')):
+            settings = yaml.safe_load(path.read_text(encoding='utf-8'))
+            if settings['model']['profile'] != settings['experiment']['stage'] + '_cpu':
                 continue
             with self.subTest(path=path.name):
                 config = entry._load_config(path)

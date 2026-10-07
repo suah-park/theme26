@@ -1,0 +1,37 @@
+# Diagnostic only: repeat one Berea train marginal for 100 optimizer steps.
+experiment:
+  id: e1_ami_fixed_batch_overfit
+  stage: ami
+  diagnostic: fixed_batch_overfit
+  seed: 1
+model:
+  settings: configs/model/saint_x4.yaml
+  profile: ami_target
+data:
+  mode: berea_manifest
+  path_env: THEME26_GRAYSCALE_RAW
+  manifest: configs/data/berea_crops.yaml
+  protocol_dir: configs/data
+  minimum_buffer_voxels: 32
+  metadata:
+    sample_id: berea
+    source_core_id: Berea
+    shape_xyz: [1000, 1000, 1000]
+    spacing_um_xyz: [2.25, 2.25, 2.25]
+    dtype: uint8
+    endianness: not-applicable
+    storage_order: XYZ
+diagnostic:
+  sample_id: berea_train_000
+  direction: sagittal
+  plane_index: 128
+training:
+  loss_region: all
+  batch_size: 1
+  optimizer_steps: 100
+  log_interval_steps: 10
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  mixed_precision: false
+  gradient_clip_norm: 1.0
+output_dir: runs/e1_ami_fixed_batch_overfit_20261007_01

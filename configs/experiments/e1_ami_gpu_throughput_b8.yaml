@@ -1,0 +1,37 @@
+# Distinct-input speed/memory probe only; not a full-training budget.
+experiment:
+  id: e1_ami_gpu_throughput_b8
+  stage: ami
+  seed: 1
+model:
+  settings: configs/model/saint_x4.yaml
+  profile: ami_target
+data:
+  mode: berea_manifest
+  path_env: THEME26_GRAYSCALE_RAW
+  manifest: configs/data/berea_crops.yaml
+  protocol_dir: configs/data
+  minimum_buffer_voxels: 32
+  metadata:
+    sample_id: berea
+    source_core_id: Berea
+    shape_xyz: [1000, 1000, 1000]
+    spacing_um_xyz: [2.25, 2.25, 2.25]
+    dtype: uint8
+    endianness: not-applicable
+    storage_order: XYZ
+training:
+  loss_region: all
+  checkpoint_metric: primary_mae
+  batch_size: 8
+  epochs: 1
+  learning_rate: 0.0001
+  weight_decay: 0.0
+  mixed_precision: false
+  gradient_clip_norm: 1.0
+  num_workers: 0
+  pin_memory: true
+  max_steps_per_epoch: 100
+  max_validation_steps: 20
+  performance_probe: true
+output_dir: runs/e1_ami_gpu_throughput_b8_20261007_01

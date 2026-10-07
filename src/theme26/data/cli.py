@@ -83,6 +83,21 @@ def _qc(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def _e1_validation_crop(args: argparse.Namespace) -> None:
+    from .e1_validation_crop_qc import run_validation_crop_qc
+
+    run_validation_crop_qc(result_dir=args.result_dir, raw=args.raw,
+                           output_dir=args.output_dir, source_config=args.source_config)
+
+
+def _e1_validation_all(args: argparse.Namespace) -> None:
+    from .e1_validation_all_qc import run_validation_all_qc
+
+    run_validation_all_qc(result_dir=args.result_dir, cache_dir=args.cache_dir,
+                          ami_checkpoint=args.ami_checkpoint, raw=args.raw,
+                          output_dir=args.output_dir)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.set_defaults(handler=None)
@@ -99,14 +114,29 @@ def build_parser() -> argparse.ArgumentParser:
         )
         command.add_argument("--output-dir", type=Path, default=Path("outputs"))
         command.set_defaults(handler=handler)
+
+    crop = subparsers.add_parser("e1-validation-crop", help="check one E1 validation crop")
+    crop.add_argument("--result-dir", type=Path, required=True)
+    crop.add_argument("--raw", type=Path, required=True)
+    crop.add_argument("--output-dir", type=Path, required=True)
+    crop.add_argument("--source-config", type=Path, default=(
+        Path(__file__).resolve().parents[3] / "configs/experiments/e1_ami_full_epoch1.yaml"))
+    crop.set_defaults(handler=_e1_validation_crop)
+
+    all_crops = subparsers.add_parser("e1-validation-all", help="compare nine E1 validation crops")
+    all_crops.add_argument("--result-dir", type=Path, required=True)
+    all_crops.add_argument("--cache-dir", type=Path, required=True)
+    all_crops.add_argument("--ami-checkpoint", type=Path, required=True)
+    all_crops.add_argument("--raw", type=Path, required=True)
+    all_crops.add_argument("--output-dir", type=Path, required=True)
+    all_crops.set_defaults(handler=_e1_validation_all)
     return parser
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.handler is None:
         parser.print_help()
         raise SystemExit(2)
     args.handler(args)
-
