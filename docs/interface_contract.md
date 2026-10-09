@@ -105,7 +105,7 @@ E0의 마지막 관측 slice 뒤에 남는 위치는 full-volume shape를 완성
 
 ## 4. 공개 API
 
-아래 signature가 모듈 사이의 계약이다. Topology loss와 evaluation의 `NotImplementedError`는 아직 구현할 자리이며, data/model/L1/gradient/E1 연결은 구현되어 있다.
+아래 signature가 모듈 사이의 계약이다. Topology loss와 evaluation의 `NotImplementedError`는 아직 구현할 자리이며, data/model/L1/gradient/E1/E2 연결은 구현되어 있다.
 
 ### 4.1 Data
 
@@ -173,7 +173,7 @@ topology_loss(probability, target, *, iterations,
               dice_weight=0.5, cldice_weight=0.5) -> torch.Tensor
 ```
 
-E1 AMI/RFN은 전체 raw output L1로 학습하고, clipping한 validation primary MAE로 모델을 선택한다. Batch의 `primary_mask`는 평가용이며 학습 loss의 `mask`와 별개다. E2 gradient mask 경계 규칙은 별도 동결한다. E3 topology는 observed slice를 입력값으로 교체한 assembled 3D soft pore volume에 적용하며, observed slice를 통해 gradient가 흐르면 안 된다.
+E1 AMI/RFN은 전체 raw output L1로 학습하고, clipping한 validation primary MAE로 모델을 선택한다. Batch의 `primary_mask`는 평가용이며 학습 loss의 `mask`와 별개다. E2 AMI/RFN은 전체 raw 2D output에 L1 + 0.1 × gradient를 적용하고 학습 loss에 observed/missing mask를 사용하지 않는다. Gradient는 각 공간 축 전진 차분 오차의 평균을 합산한다. E2 best도 E1과 같은 validation primary MAE로 선택한다. E3 topology는 observed slice를 입력값으로 교체한 assembled 3D soft pore volume에 적용하며, observed slice를 통해 gradient가 흐르면 안 된다.
 
 ### 4.4 Evaluation
 
@@ -210,7 +210,7 @@ compute_physics_metrics(predicted_pore, target_pore, *, spacing_um_xyz,
 
 - Berea split, buffer, 정규화, crop 좌표와 offset, E1 all-output L1/primary-MAE 선택은 이미 `configs/`에 고정되어 있다. 숫자는 [연구 기준](research_protocol.md)을 따른다.
 - soft threshold, temperature와 topology protocol version
-- E2 초기화와 gradient mask의 observed–missing 경계 정책
+- E2 GPU 학습 검증과 E3 연결
 - soft-clDice skeletonization iterations
 - SSIM implementation/window
 - permeability solver와 boundary condition

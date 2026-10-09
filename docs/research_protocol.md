@@ -74,22 +74,22 @@ RFN은 같은 Z의 두 방향 axial 결과 `[B,2,X,Y]`를 받아 `I_avg + RFN_re
 |---|---|---|
 | E0 | Z linear interpolation | deterministic, 학습 없음 |
 | E1 | 전체 raw output L1 | AMI 학습 → frozen 두 방향 cache → RFN 학습 |
-| E2 | L1 + 0.10 × gradient | E1과 같은 구조·데이터·budget 비교; 초기화 규칙은 본학습 전 결정 |
+| E2 | L1 + 0.10 × gradient | E1과 같은 구조·데이터·budget; seed 1로 AMI/RFN 각각 새 초기화, AMI 10 epoch → 전용 cache → RFN 10 epoch |
 | E3 | L1 + 0.10 × gradient + 0.10 × topology | 같은 seed E2 best에서 AMI freeze, RFN fine-tuning |
 
 모든 비교는 같은 split/crop/sampling/normalization을 사용합니다. Headline learned seeds는 1/2/3, debug seed는 0이며 데이터 crop seed 2026과 구분합니다. E0는 seed 반복이 없습니다.
 
 - L1은 절대 밝기 오차입니다. AMI/RFN 모두 전체 2D raw output에 적용하며 binary target은 쓰지 않습니다.
-- Gradient loss는 역전파 gradient가 아니라 영상의 인접 픽셀 밝기 차이입니다. `mean(|Dx(pred)-Dx(target)|)+mean(|Dy(pred)-Dy(target)|)`를 사용합니다. 2D/3D 함수는 있으나 E2 loop는 미구현이며 observed–missing 경계의 mask 규칙은 별도 결정합니다.
+- Gradient loss는 역전파 gradient가 아니라 영상의 인접 픽셀 밝기 차이입니다. 각 2D 공간 축의 전진 차분(`다음 픽셀 - 현재 픽셀`)에 대해 `mean(|Dx(pred)-Dx(target)|)+mean(|Dy(pred)-Dy(target)|)`를 사용합니다. 각 축 전체의 평균을 더하며 2로 나누지 않습니다. E2 AMI/RFN에서는 raw 전체 출력에 적용하고 observed/missing mask를 사용하지 않습니다.
 - E3는 assembled 3D grayscale에서 `sigmoid((threshold-I_final)/temperature)`를 만들어 aligned binary pore target과 비교합니다. `topology=0.5 softDice + 0.5 soft-clDice`. Observed 단면은 상수로 조립하고 그 위치로 gradient가 흐르지 않게 합니다.
 - Soft-clDice는 connectivity surrogate이며 완전한 위상 보장이 아닙니다. Hard connected-component/물성 solver는 학습 graph에 넣지 않습니다.
 
 ## 5. 학습과 모델 선택
 
 - E1 best: `[0,1]` clipping 후 validation bracketed missing-only MAE. Raw train/validation L1은 별도 기록합니다.
-- E2 예정 선택 기준: validation primary MAE. E3 예정 선택 기준: validation total E3 loss. Test는 선택·tuning에 사용하지 않습니다.
-- 기존 실행값: Adam, lr `1e-4`, weight decay 0, gradient clipping norm 1.0. 현재 GPU pilot은 target 모델, batch 1, 1 epoch, train/validation 각각 1-step, AMP off, workers 0입니다.
-- 본학습 batch/epochs는 `null`이며 GPU memory·속도 probe 후 결정합니다. AMP/workers/batch를 변경하면 다시 probe합니다. Full validation과 one-batch overfit은 1-step pilot과 다릅니다.
+- E2 선택 기준: E1과 같은 clipping 후 validation bracketed missing-only primary MAE. Train/validation total, L1, gradient loss를 별도 기록합니다. E3 예정 선택 기준: validation total E3 loss. Test는 선택·tuning에 사용하지 않습니다.
+- 기존 실행값: Adam, lr `1e-4`, weight decay 0, gradient clipping norm 1.0. E1 초기 GPU pilot은 target 모델, batch 1, 1 epoch, train/validation 각각 1-step, AMP off, workers 0이었습니다. E2 별도 GPU pilot은 batch 8, train/validation 각각 2-step입니다.
+- E1 target 템플릿의 batch/epochs는 `null`이며, E1 실제 실행과 E2 설정은 별도 확정 budget을 사용합니다. AMP/workers/batch를 변경하면 다시 probe합니다. Full validation과 pilot은 구분합니다.
 - GPU 자원 문제를 해결하려고 crop·factor·모델·split을 임의로 바꾸지 않습니다. 배치/AMP/chunking을 먼저 검토합니다. Accumulation/checkpointing은 현재 실행 옵션이라고 가정하지 않습니다.
 - AMI 실제 sample 수는 train `48×512=24,576`, validation `9×512=4,608`. RFN train은 모든 256 axial phase, validation은 crop당 primary 189 phase입니다.
 
@@ -112,9 +112,9 @@ Run/prediction/metric에는 experiment/config/Git commit, seed, source SHA/DOI/c
 ## 7. 남은 구현·결정
 
 - GPU target pilot, 한 batch overfit, 본학습 budget 및 서버 제출 규칙 확인.
-- E2 초기화·gradient 경계 정책 동결 및 loop 연결.
+- E2 GPU pilot 후 AMI 10 epoch → E2 전용 cache → RFN 10 epoch 실행·검증.
 - Binary 실제 alignment/polarity 검증; E3 soft threshold/temperature/iterations 결정, soft Dice/clDice backward와 connected/disconnected/constant phantom 검사, RFN 3D fine-tuning 구현.
 - SSIM 구현/window, hard segmentation, topology 지표, tortuosity/permeability solver·조건 및 empty-phase 정책 동결·구현.
 - Seeds 1/2/3 본학습, frozen inference와 최종 test evaluation.
 
-E0/E1 코드 경로와 L1/gradient 함수는 구현되어 있습니다. E2/E3 loop와 과학적 평가 함수는 아직 미구현입니다. CPU/QC 성공은 GPU fit·convergence·복원 성능의 증거가 아닙니다. PSNR 향상만으로 permeability 향상이나 실제 미관측 구조의 유일한 정답을 주장하지 않습니다.
+E0/E1 코드 경로와 E2 L1+gradient loop는 구현되어 있습니다. E2 GPU 학습과 E3 loop 및 과학적 평가 함수는 아직 수행·구현되지 않았습니다. CPU/QC 성공은 GPU fit·convergence·복원 성능의 증거가 아닙니다. PSNR 향상만으로 permeability 향상이나 실제 미관측 구조의 유일한 정답을 주장하지 않습니다.

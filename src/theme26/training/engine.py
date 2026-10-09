@@ -1,16 +1,17 @@
-"""Stage-aware E1 training and validation loops."""
+"""Stage-aware E1 and E2 training and validation loops."""
 
 from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import dataclass
 from itertools import islice
+import math
 from typing import Callable, Iterable, Literal, Mapping
 
 import torch
 from torch import nn
 
-from theme26.losses import masked_l1_loss
+from theme26.losses import gradient_loss_2d, masked_l1_loss
 
 Stage = Literal["ami", "rfn"]
 TensorBatch = Mapping[str, torch.Tensor]
@@ -24,6 +25,8 @@ class EpochResult:
     steps: int
     primary_mae: float | None = None
     primary_voxels: int = 0
+    l1_loss: float = 0.0
+    gradient_loss: float = 0.0
 
 
 def _move_batch(batch: TensorBatch, device: torch.device) -> dict[str, torch.Tensor]:
@@ -62,11 +65,16 @@ def _run_epoch(
     gradient_clip_norm: float | None,
     max_steps: int | None,
     progress_callback: Callable[[int, int], None] | None,
+    gradient_weight: float,
 ) -> EpochResult:
+    if not math.isfinite(gradient_weight) or gradient_weight < 0:
+        raise ValueError("gradient_weight must be finite and non-negative")
     training = optimizer is not None
     model.train(training)
     amp_enabled = use_amp and device.type == "cuda"
     total_loss = 0.0
+    total_l1 = 0.0
+    total_gradient = 0.0
     loss_voxels = 0
     primary_error = 0.0
     primary_voxels = 0
@@ -87,7 +95,13 @@ def _run_epoch(
                 enabled=amp_enabled,
             ):
                 prediction = _forward_stage(model, batch, stage)
-                loss = masked_l1_loss(prediction, batch["target"], mask=batch.get("mask"))
+                # E2 uses the entire raw output for both terms. Keep the
+                # optional E1 mask behavior when gradient_weight is zero.
+                l1 = masked_l1_loss(prediction, batch["target"],
+                                    mask=batch.get("mask") if gradient_weight == 0 else None)
+                gradient = (gradient_loss_2d(prediction, batch["target"])
+                            if gradient_weight else None)
+                loss = l1 + gradient_weight * gradient if gradient is not None else l1
 
         if not torch.isfinite(loss):
             raise FloatingPointError(f"non-finite {stage} loss at step {batch_index}")
@@ -110,8 +124,12 @@ def _run_epoch(
                     torch.nn.utils.clip_grad_norm_(model.parameters(), gradient_clip_norm)
                 optimizer.step()
 
-        count = prediction.numel() if "mask" not in batch else int(torch.broadcast_to(batch["mask"], prediction.shape).sum())
+        count = (prediction.numel() if gradient_weight or "mask" not in batch else
+                 int(torch.broadcast_to(batch["mask"], prediction.shape).sum()))
         total_loss += float(loss.detach()) * count
+        total_l1 += float(l1.detach()) * count
+        if gradient is not None:
+            total_gradient += float(gradient.detach()) * count
         loss_voxels += count
         if "primary_mask" in batch:
             metric_mask = torch.broadcast_to(batch["primary_mask"], prediction.shape)
@@ -129,7 +147,9 @@ def _run_epoch(
         raise ValueError("loader produced no training or validation steps")
     return EpochResult(loss=total_loss / loss_voxels, steps=steps,
                        primary_mae=primary_error / primary_voxels if primary_voxels else None,
-                       primary_voxels=primary_voxels)
+                       primary_voxels=primary_voxels,
+                       l1_loss=total_l1 / loss_voxels,
+                       gradient_loss=total_gradient / loss_voxels)
 
 
 def train_one_epoch(
@@ -144,8 +164,9 @@ def train_one_epoch(
     gradient_clip_norm: float | None = None,
     max_steps: int | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
+    gradient_weight: float = 0.0,
 ) -> EpochResult:
-    """Train AMI or RFN for one E1 epoch using L1 reconstruction loss."""
+    """Train AMI or RFN with E1 L1 or E2 L1 plus image-gradient loss."""
 
     if gradient_clip_norm is not None and gradient_clip_norm <= 0:
         raise ValueError("gradient_clip_norm must be positive or None")
@@ -160,6 +181,7 @@ def train_one_epoch(
         gradient_clip_norm=gradient_clip_norm,
         max_steps=max_steps,
         progress_callback=progress_callback,
+        gradient_weight=gradient_weight,
     )
 
 
@@ -172,8 +194,9 @@ def validate_one_epoch(
     use_amp: bool = True,
     max_steps: int | None = None,
     progress_callback: Callable[[int, int], None] | None = None,
+    gradient_weight: float = 0.0,
 ) -> EpochResult:
-    """Evaluate one E1 epoch without updating model state."""
+    """Evaluate one epoch without updating model state."""
 
     return _run_epoch(
         model,
@@ -186,4 +209,5 @@ def validate_one_epoch(
         gradient_clip_norm=None,
         max_steps=max_steps,
         progress_callback=progress_callback,
+        gradient_weight=gradient_weight,
     )

@@ -7,6 +7,7 @@ import os
 import random
 import sys
 import copy
+import math
 import subprocess
 import time
 from pathlib import Path
@@ -284,9 +285,12 @@ def main() -> None:
     if experiment.get("diagnostic") is not None:
         raise ValueError("unsupported diagnostic")
     if training.get("loss_region", "all") != "all":
-        raise ValueError("E1 protocol uses all-output training L1")
+        raise ValueError("E1/E2 protocol uses all-output training loss")
     if training.get("checkpoint_metric", "primary_mae") != "primary_mae":
-        raise ValueError("E1 best checkpoint must use clipped bracketed-missing MAE")
+        raise ValueError("E1/E2 best checkpoint must use clipped bracketed-missing MAE")
+    gradient_weight = float(training.get("gradient_weight", 0.0))
+    if not math.isfinite(gradient_weight) or gradient_weight < 0:
+        raise ValueError("gradient_weight must be finite and non-negative")
     if training.get("epochs") is None and args.epochs is None:
         raise ValueError("Set epochs after the GPU pilot; this config is an unfilled template")
     if training.get("batch_size", 1) is None:
@@ -318,7 +322,7 @@ def main() -> None:
         if ((stage, config["data"].get("mode")) not in
                 (("ami", "berea_manifest"), ("rfn", "berea_rfn_cache"))
                 or int(training["batch_size"]) not in (1, 8) or epochs != 1 or args.resume):
-            raise ValueError("performance probe requires one fresh E1 Berea AMI/RFN epoch with batch_size 1 or 8")
+            raise ValueError("performance probe requires one fresh Berea AMI/RFN epoch with batch_size 1 or 8")
         for key, loader in (("max_steps_per_epoch", train_loader),
                             ("max_validation_steps", validation_loader)):
             limit = training.get(key)
@@ -353,6 +357,9 @@ def main() -> None:
     metadata = {"git_commit": git_commit, "seed": seed, "device": str(device),
                 "torch_version": str(torch.__version__), "config_file_sha256": file_hash(args.config),
                 "checkpoint_metric": "primary_mae", "metric_range_policy": "clip_0_1"}
+    if gradient_weight:
+        metadata.update(objective="raw_all_output_l1_plus_gradient_2d",
+                        gradient_weight=gradient_weight)
     source_data = config["data"].get("source", config["data"])
     if source_data.get("mode") == "berea_manifest":
         raw_path, _, _, _, protocol_id = read_berea_context(source_data)
@@ -400,6 +407,7 @@ def main() -> None:
             gradient_clip_norm=training.get("gradient_clip_norm"),
             max_steps=training.get("max_steps_per_epoch"),
             progress_callback=train_probe.on_step if train_probe is not None else None,
+            gradient_weight=gradient_weight,
         )
         train_timing = train_probe.finish(train_result.steps) if train_probe is not None else None
         validation_probe = (PhaseProbe(epoch=epoch, phase="validation",
@@ -419,18 +427,29 @@ def main() -> None:
             use_amp=use_amp,
             max_steps=training.get("max_validation_steps"),
             progress_callback=validation_probe.on_step if validation_probe is not None else None,
+            gradient_weight=gradient_weight,
         )
         validation_timing = (validation_probe.finish(validation_result.steps)
                              if validation_probe is not None else None)
         if validation_result.primary_mae is None:
             raise ValueError("validation has no bracketed missing voxels; increase pilot validation steps")
         selected_metric = validation_result.primary_mae
-        print(
-            f"epoch={epoch:03d} stage={stage} device={device.type} "
-            f"train_l1={train_result.loss:.6f} "
-            f"validation_l1={validation_result.loss:.6f} "
-            f"validation_primary_mae={selected_metric:.6f}"
-        )
+        if gradient_weight:
+            print(f"epoch={epoch:03d} stage={stage} device={device.type} "
+                  f"train_total_loss={train_result.loss:.6f} "
+                  f"train_l1={train_result.l1_loss:.6f} "
+                  f"train_gradient_loss={train_result.gradient_loss:.6f} "
+                  f"validation_total_loss={validation_result.loss:.6f} "
+                  f"validation_l1={validation_result.l1_loss:.6f} "
+                  f"validation_gradient_loss={validation_result.gradient_loss:.6f} "
+                  f"validation_primary_mae={selected_metric:.6f}")
+        else:
+            print(
+                f"epoch={epoch:03d} stage={stage} device={device.type} "
+                f"train_l1={train_result.loss:.6f} "
+                f"validation_l1={validation_result.loss:.6f} "
+                f"validation_primary_mae={selected_metric:.6f}"
+            )
         improved = selected_metric < best_validation
         best_validation = min(best_validation, selected_metric)
         if device.type == "cuda":
@@ -439,12 +458,17 @@ def main() -> None:
                               if log_progress else torch.cuda.max_memory_allocated(device))
         else:
             peak_gpu_bytes = None
-        history.append({"epoch": epoch, "train_l1": train_result.loss,
-                        "validation_l1": validation_result.loss, "validation_primary_mae": selected_metric,
+        history.append({"epoch": epoch, "train_l1": train_result.l1_loss,
+                        "validation_l1": validation_result.l1_loss, "validation_primary_mae": selected_metric,
                         "primary_voxels": validation_result.primary_voxels,
                         "train_steps": train_result.steps, "validation_steps": validation_result.steps,
                         "elapsed_seconds": time.perf_counter() - started,
                         "peak_gpu_bytes": peak_gpu_bytes,
+                        **({"train_total_loss": train_result.loss,
+                            "train_gradient_loss": train_result.gradient_loss,
+                            "validation_total_loss": validation_result.loss,
+                            "validation_gradient_loss": validation_result.gradient_loss}
+                           if gradient_weight else {}),
                         **({"train_timing": train_timing, "validation_timing": validation_timing}
                            if log_progress else {})})
         checkpoint_kwargs = {
