@@ -1,0 +1,74 @@
+{
+  "source": "User-provided CUDA/FP64 run of v0.2.2; NOT rerun for this final delivery",
+  "source_log_sha256": "def1ddd5b1d05c721da5b0d09bd8102b1b5774c6be7630e0973254ce5f1ee69b",
+  "shape_xyz": [
+    131,
+    131,
+    131
+  ],
+  "spacing_um_xyz": [
+    7.5,
+    7.5,
+    7.5
+  ],
+  "flow_axis": "z",
+  "precision": "float64",
+  "boundary": "periodic_all_axes_no_reservoir",
+  "force_density": 1e-06,
+  "nu_lattice": 0.1,
+  "iterations": 50000,
+  "runtime_seconds": 3942.070145599995,
+  "kz_mD": 444.7208435554732,
+  "kz_m2": 4.3890536250055136e-13,
+  "tail_samples": 6,
+  "tail_first_iteration": 47500,
+  "tail_last_iteration": 50000,
+  "tail_kz_mean_mD": 444.7210280466683,
+  "tail_kz_std_mD": 0.0001301965915366134,
+  "tail_kz_min_mD": 444.7208435554732,
+  "tail_kz_max_mD": 444.7212247964168,
+  "tail_relative_range_pct": 8.57258995373843e-05,
+  "change_40000_to_50000_pct": 0.0005744975480733218,
+  "node_plane_flux_spread_pct": 2.603567680177214,
+  "global_mass_drift_fraction": 9.019673896659697e-12,
+  "paper_value_mD": 789.0,
+  "arithmetic_difference_mD": -344.2791564445268,
+  "absolute_arithmetic_difference_pct": 43.634874074084514,
+  "old_status_retained_for_provenance": "not_converged",
+  "old_core_sha256": "bf44bab6523802b654bcf3e3adb6e32285c685ef4dc8bc0380ee8699109402af",
+  "comparison_status": "descriptive_only_no_acceptance_test",
+  "same_quantity_confirmed": false,
+  "recorded_tail": [
+    {
+      "iteration": 47500,
+      "kz_mD": 444.7212247964168
+    },
+    {
+      "iteration": 48000,
+      "kz_mD": 444.7211408855518
+    },
+    {
+      "iteration": 48500,
+      "kz_mD": 444.72106112316135
+    },
+    {
+      "iteration": 49000,
+      "kz_mD": 444.7209851763158
+    },
+    {
+      "iteration": 49500,
+      "kz_mD": 444.72091274309093
+    },
+    {
+      "iteration": 50000,
+      "kz_mD": 444.7208435554732
+    }
+  ],
+  "limits": [
+    "Time-sample variation, NOT independent repeatability or an accuracy confidence interval.",
+    "Every-500-step records do not resolve odd/even-step oscillations.",
+    "Node-plane rho*u spread is diagnostic; no conservative link-flux data were recorded.",
+    "The paper 789 mD direction/full forcing settings are unresolved; arithmetic difference is not a validated reproduction error.",
+    "No claim that this initial run validates all 256^3 rocks. No fluid equation changed to fit 789."
+  ]
+}

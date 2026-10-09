@@ -1,0 +1,81 @@
+{
+  "repository": "yjhp1016/taichi_LBM3D",
+  "commit": "fe49e3f609b2038cbf93c8bd453ffc5c2bf98e4c",
+  "commit_date": "2025-04-07",
+  "not_paper_commit": true,
+  "source_file": "Single_phase/LBM_3D_SinglePhase_Solver.py",
+  "source_git_blob_sha1": "b012f4a92031d6741f24f09ce33a82bdb132fad0",
+  "source_size_bytes": 23196,
+  "local_form": "periodic-only extraction/adaptation, not byte-identical upstream class",
+  "license": "MIT",
+  "license_git_blob_sha1": "e4488089cdf1ae81f53601d7ea42617520f11e19",
+  "reference_data": {
+    "path": "Single_phase/img_ftb131.txt",
+    "git_blob_sha1": "df95c7e7a3c9bb910db2effb18fc7f1a2d8b7b04",
+    "size_bytes": 8391824,
+    "shape": [
+      131,
+      131,
+      131
+    ],
+    "storage_order": "F",
+    "solid_value": 1,
+    "pore_value": 0
+  },
+  "current_example": {
+    "path": "Single_phase/example_porous_medium.py",
+    "git_blob_sha1": "57428aede8bad0a1485d91bc2cd7f2290d1a8de3",
+    "drive": "pressure_x_rho_1.0_to_0.99",
+    "nu_default": 0.16667
+  },
+  "paper_case": {
+    "section": "4.2",
+    "reported_k_mD": 789,
+    "spacing_um": 7.5,
+    "drive": "body_force",
+    "axis": "not_explicitly_resolved",
+    "force_amplitude": "not_resolved",
+    "nu": 0.1
+  },
+  "physical_modifications": {
+    "tau": "3*nu+0.5; Yang Eq.7 and pinned standalone lbm_solver_3d.py",
+    "forcing": "fixed coefficients 3 and 9; retained from v0.1 corrected path; separate correction to upstream class",
+    "validation": "Inherited v0.2.2 formulas. User CUDA/FP64 trace is supplied; no new fluid simulation in this delivery. Not automatic accuracy certification."
+  },
+  "local_sha256": {
+    "lattice.py": "b8636dc41bf1e81efb4b3647134dff3a02314dba80fffcc640c67c6c6d3221e0",
+    "periodic_core.py": "5ceee5b1130de91e3125cd66ad7a203875c792505fd63d32f1af65ee5519ba17",
+    "formulation.py": "d7710484e2e13d21ca01697ae368db82cabdb3fa344442ce64396ffe263e88c8",
+    "__init__.py": "383faaabdb6234373d6d4a06cb47ccae22836f553bd047fdc259011cd0aad439"
+  },
+  "package_version": "0.3.0",
+  "formulation_id": "yang_eq7_guo_d3q19_v02",
+  "runtime_alternative_formulas": false,
+  "tau_supporting_source": {
+    "path": "Single_phase/lbm_solver_3d.py",
+    "git_blob_sha1": "5bcd43b035727a8d0b03970ec4561c03cde65551",
+    "expression": "tau_f=3.0*niu+0.5"
+  },
+  "project_axis": "z",
+  "diagnostic_reference_axis": "z",
+  "paper_reference_axis": "unresolved",
+  "v022_precision_update": {
+    "description": "Selectable FP64 real fields/constants/runtime literals; no equation or physical setting changes from v0.2.1.",
+    "actual_taichi_tested_in_delivery": false,
+    "reason": "Investigate reported low-speed FP32 drift without changing force, tau, geometry or tolerance."
+  },
+  "final_delivery": {
+    "precision": "float64_only",
+    "execution": "fixed_budget_report_only",
+    "new_fluid_equations": false,
+    "new_fluid_simulations": false,
+    "automatic_acceptance_gate": false
+  },
+  "repository_integration": {
+    "base_commit": "8e7f09259060e7a339de247028eeb8969cc11361",
+    "delivery": "theme26_yang_lbm_fp64_final.zip",
+    "new_fluid_simulations": false,
+    "equations_changed": false,
+    "changes": "Package relocation, public scalar API, native infer.py file bridge; vendor module documentation path updated."
+  }
+}

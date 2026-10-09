@@ -11,6 +11,11 @@ dependencies = ["numpy>=1.24,<3", "PyYAML>=6.0"]
 [project.optional-dependencies]
 plots = ["matplotlib>=3.7"]
 training = ["torch>=2.1"]
+evaluation = ["scipy>=1.10", "taichi==1.7.4"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"theme26.evaluation.yang_lbm" = ["recorded_reference.json"]
+"theme26.evaluation.yang_lbm._vendor" = ["LICENSE", "UPSTREAM.json"]

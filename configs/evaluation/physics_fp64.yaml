@@ -1,0 +1,30 @@
+# Post-training only. No accuracy threshold, approval file or automatic retry.
+solver:
+  backend: cuda
+  axis: z
+  nu_lattice: 0.1
+  force_density: 1.0e-6
+  boundary: periodic_all_axes_no_reservoir
+  precision: float64
+  max_steps: 50000
+  check_every: 500
+  history_window: 6
+  max_seconds: 7200
+  cpu_threads: 4
+  device_memory_fraction: 0.8
+  isolation: true
+  cache_dir: outputs/evaluation/cache_fp64
+
+# Used only by evaluate-inference. Copy the team's frozen segmentation settings;
+# no default threshold is invented and no Otsu/test-based fitting is performed.
+segmentation:
+  threshold: null
+  pore_is_dark: true
+  version: null
+
+# Current Berea source protocol; read spacing/crop/normalization from inference metadata.
+reference:
+  core_id: Berea
+  shape_xyz: [1000, 1000, 1000]
+  dtype: uint8
+  source_pore_value: 0
