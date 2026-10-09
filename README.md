@@ -8,6 +8,7 @@ Berea sandstone의 grayscale Micro-CT에서 네 장마다 한 장을 관측하�
 |---|---|
 | 실험 조건·모델 설정·아직 결정할 값 | [연구 기준](docs/research_protocol.md) |
 | 설치·데이터 위치·pilot·학습·추론 실행 | [E1 실행 안내](docs/e1_execution.md) |
+| E2 L1 + gradient 단계별 실행 | [E2 실행 안내](docs/e2_execution.md) |
 | 코드 구현 시 입력·출력·담당 경로 | [인터페이스 계약](docs/interface_contract.md) |
 | 추론 후 FP64 투과도 평가·결과 읽기 | [물성 평가 안내](docs/evaluation_fp64.md) |
 | Branch·PR와 코드 공유 규칙 | [기여 안내](CONTRIBUTING.md) |
@@ -34,7 +35,7 @@ configs/
 slurm/train_e1.sbatch          # Slurm을 사용하는 서버의 제출 템플릿
 ```
 
-Pilot은 성능 결과가 아닙니다. 본학습 batch size와 epochs는 GPU pilot 후 결정하며 현재 템플릿에는 `null`입니다. 서버가 Slurm인지 직접 실행 방식인지는 관리자에게 확인합니다.
+Pilot은 성능 결과가 아닙니다. E1 target 템플릿의 batch size와 epochs는 `null`이며, 완료된 E1 실행과 E2의 별도 설정에는 확정 budget을 명시합니다. 서버가 Slurm인지 직접 실행 방식인지는 관리자에게 확인합니다.
 
 ## 구현 코드는 어디에 있나요?
 
@@ -70,9 +71,11 @@ python -m theme26.data qc --data-root /path/to/Berea --output-dir outputs/spatia
 
 ## 구현 상태
 
-- 구현: RAW/공간 분할/QC, E0, AMI/RFN forward, L1/gradient 함수, E1 AMI → cache → RFN 학습, 재개·기록·최종 추론.
-- 미구현: E2 gradient 학습 연결, E3 topology 및 fine-tuning, PSNR/SSIM·위상·굴곡도 평가.
+- 구현: RAW/공간 분할/QC, E0, AMI/RFN forward, L1/gradient 함수, E1·E2 AMI → cache → RFN 학습 연결, 재개·기록·최종 추론.
+- 미구현: E3 topology 및 fine-tuning, PSNR/SSIM·위상·굴곡도 평가.
 - 별도 검증 필요: 목표 모델의 GPU pilot·overfit·본학습·실제 복원 성능. CPU 검사나 설치 성공만으로 이를 확인했다고 주장하지 않습니다.
+
+E2의 단계별 명령과 별도 GPU pilot은 [E2 실행 안내](docs/e2_execution.md)에 있습니다.
 
 ## 선택적 FP64 물성 평가
 

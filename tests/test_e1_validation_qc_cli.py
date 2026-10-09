@@ -23,7 +23,17 @@ class E1ValidationQcCliTests(unittest.TestCase):
         with patch("theme26.data.e1_validation_crop_qc.run_validation_crop_qc") as run:
             args.handler(args)
         run.assert_called_once_with(result_dir=Path("result/000"), raw=Path("berea.raw"),
-                                    output_dir=Path("new-qc"), source_config=Path("source.yaml"))
+                                    output_dir=Path("new-qc"), source_config=Path("source.yaml"),
+                                    model_label="E1 SAINT")
+
+    def test_crop_command_routes_custom_model_label(self):
+        args = build_parser().parse_args([
+            "e1-validation-crop", "--result-dir", "result/000", "--raw", "berea.raw",
+            "--output-dir", "new-qc", "--model-label", "E2 SAINT (L1 + gradient)",
+        ])
+        with patch("theme26.data.e1_validation_crop_qc.run_validation_crop_qc") as run:
+            args.handler(args)
+        self.assertEqual(run.call_args.kwargs["model_label"], "E2 SAINT (L1 + gradient)")
 
     def test_all_command_routes_paths_to_data_qc(self):
         args = build_parser().parse_args([
@@ -48,7 +58,19 @@ class E1ValidationQcCliTests(unittest.TestCase):
             svg = path.read_text(encoding="utf-8")
             self.assertIn("Axial: missing Z=125", svg)
             self.assertIn("Shared grayscale [0,1]", svg)
+            self.assertIn("E1 SAINT</text>", svg)
+            self.assertIn("|E1 SAINT - Truth|</text>", svg)
+            self.assertIn("shared E0/E1 SAINT absolute-error scale", svg)
             self.assertIn("Absolute error", svg)
+
+            _figure(path, title="Axial: missing Z=125", x_axis="X", y_axis="Y",
+                    truth=plane, e0=plane, e1=plane, error_maximum=1.0,
+                    model_label="E2 SAINT (L1 + gradient)")
+            svg = path.read_text(encoding="utf-8")
+            self.assertIn("E2 SAINT (L1 + gradient)</text>", svg)
+            self.assertIn("|E2 SAINT (L1 + gradient) - Truth|</text>", svg)
+            self.assertIn("shared E0/E2 SAINT (L1 + gradient) absolute-error scale", svg)
+            self.assertNotIn("E1 SAINT", svg)
 
 
 if __name__ == "__main__":

@@ -54,10 +54,10 @@ def _error(array: np.ndarray, maximum: float) -> np.ndarray:
 
 def _figure(path: Path, *, title: str, x_axis: str, y_axis: str,
             truth: np.ndarray, e0: np.ndarray, e1: np.ndarray,
-            error_maximum: float) -> None:
+            error_maximum: float, model_label: str = "E1 SAINT") -> None:
     panels = (("Truth", truth, False), ("E0 linear", e0, False),
-              ("E1 SAINT", e1, False), ("|E0 - Truth|", np.abs(e0 - truth), True),
-              ("|E1 - Truth|", np.abs(e1 - truth), True))
+              (model_label, e1, False), ("|E0 - Truth|", np.abs(e0 - truth), True),
+              (f"|{model_label} - Truth|", np.abs(e1 - truth), True))
     parts = [
         '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
         'width="1750" height="520" viewBox="0 0 1750 520">',
@@ -65,7 +65,8 @@ def _figure(path: Path, *, title: str, x_axis: str, y_axis: str,
         f'<text x="875" y="37" text-anchor="middle" font-size="25" font-weight="bold">'
         f'{html.escape(title)}</text>',
         '<text x="875" y="64" text-anchor="middle" font-size="16">'
-        'Shared grayscale [0,1]; shared E0/E1 absolute-error scale</text>',
+        f'Shared grayscale [0,1]; shared E0/{html.escape(model_label)} '
+        'absolute-error scale</text>',
     ]
     for index, (label, plane, is_error) in enumerate(panels):
         left = 70 + index * 340
@@ -116,7 +117,8 @@ def _figure(path: Path, *, title: str, x_axis: str, y_axis: str,
 
 
 def run_validation_crop_qc(*, result_dir: Path, raw: Path,
-                           output_dir: Path, source_config: Path) -> None:
+                           output_dir: Path, source_config: Path,
+                           model_label: str = "E1 SAINT") -> None:
     """Check one registered E1 crop and save shared-scale comparison figures."""
     result_dir = result_dir.resolve()
     output_dir = output_dir.resolve()
@@ -196,7 +198,8 @@ def run_validation_crop_qc(*, result_dir: Path, raw: Path,
     for name, title, x_axis, y_axis, truth, e0_plane, e1_plane in figure_data:
         path = output_dir / f"{name}.svg"
         _figure(path, title=title, x_axis=x_axis, y_axis=y_axis,
-                truth=truth, e0=e0_plane, e1=e1_plane, error_maximum=error_maximum)
+                truth=truth, e0=e0_plane, e1=e1_plane,
+                error_maximum=error_maximum, model_label=model_label)
         figure_paths.append(path.name)
     png_paths = []
     if shutil.which("convert"):
@@ -207,6 +210,7 @@ def run_validation_crop_qc(*, result_dir: Path, raw: Path,
             png_paths.append(png_name)
     report = {
         "scope": "one registered validation crop; not whole-validation performance",
+        "model_label": model_label,
         "crop_id": record.sample_id,
         "origin_xyz": list(record.crop.origin_xyz),
         "normalization_id": normalization["normalization_id"],

@@ -87,7 +87,8 @@ def _e1_validation_crop(args: argparse.Namespace) -> None:
     from .e1_validation_crop_qc import run_validation_crop_qc
 
     run_validation_crop_qc(result_dir=args.result_dir, raw=args.raw,
-                           output_dir=args.output_dir, source_config=args.source_config)
+                           output_dir=args.output_dir, source_config=args.source_config,
+                           model_label=args.model_label)
 
 
 def _e1_validation_all(args: argparse.Namespace) -> None:
@@ -119,6 +120,8 @@ def build_parser() -> argparse.ArgumentParser:
     crop.add_argument("--result-dir", type=Path, required=True)
     crop.add_argument("--raw", type=Path, required=True)
     crop.add_argument("--output-dir", type=Path, required=True)
+    crop.add_argument("--model-label", default="E1 SAINT",
+                      help="label for the model in figures and report (default: E1 SAINT)")
     crop.add_argument("--source-config", type=Path, default=(
         Path(__file__).resolve().parents[3] / "configs/experiments/e1_ami_full_epoch1.yaml"))
     crop.set_defaults(handler=_e1_validation_crop)
